@@ -37,6 +37,13 @@ interface SetupState {
   botBasicId?: string;
   workerUrl?: string;
   adminUrl?: string;
+  /**
+   * Pristine apps/worker/wrangler.toml content captured before we started
+   * substituting account/database IDs. Restored on exit so the cloned repo
+   * stays git-clean. Persisted in state.json so SIGINT mid-run + later
+   * `npx create-line-harness` resume still has the right baseline.
+   */
+  originalWranglerToml?: string;
   completedSteps: string[];
 }
 
@@ -73,6 +80,60 @@ function saveState(repoDir: string, state: SetupState): void {
 
 function isDone(state: SetupState, step: string): boolean {
   return state.completedSteps.includes(step);
+}
+
+/**
+ * The OSS-synced wrangler.toml ships with placeholders like
+ * `YOUR_DEV_ACCOUNT_ID` / `YOUR_DEV_D1_DATABASE_ID` so it never leaks the
+ * upstream maintainer's IDs. Wrangler reads those placeholders verbatim and
+ * fails routing (`Could not route to /accounts/YOUR_DEV_ACCOUNT_ID/...`),
+ * which used to surface as "no such table: line_accounts" two steps later.
+ *
+ * We patch the file in-place (so `wrangler` resolves `main = "src/index.ts"`
+ * and `assets.directory` correctly relative to apps/worker/) and capture the
+ * pristine content into the setup state so it can be restored at the end of
+ * the run — leaving the tracked file dirty would break a future
+ * `git pull --ff-only` on `~/.line-harness`.
+ *
+ * Replaces EVERY account_id / database_id literal — covers both placeholders
+ * and real IDs left over from a prior install or a different Cloudflare
+ * account. Idempotent: safe to call multiple times.
+ */
+function applyPatchedConfig(
+  state: SetupState,
+  repoDir: string,
+  accountId: string,
+  databaseId?: string,
+): void {
+  const tomlPath = join(repoDir, "apps/worker/wrangler.toml");
+  if (!existsSync(tomlPath)) return;
+  // Capture the pristine file the FIRST time we patch (before our
+  // substitution touches it), so we can restore it on exit and not pollute
+  // future `git pull --ff-only` runs.
+  if (state.originalWranglerToml === undefined) {
+    state.originalWranglerToml = readFileSync(tomlPath, "utf-8");
+  }
+  let content = state.originalWranglerToml;
+  content = content.replace(/account_id\s*=\s*"[^"]*"/g, `account_id = "${accountId}"`);
+  if (databaseId) {
+    content = content.replace(/database_id\s*=\s*"[^"]*"/g, `database_id = "${databaseId}"`);
+  }
+  writeFileSync(tomlPath, content);
+}
+
+/**
+ * Restore the original wrangler.toml so the cloned repo is git-clean again.
+ * Called from the top-level try/finally so it runs on success, error, and
+ * SIGINT alike.
+ */
+function restoreWranglerToml(state: SetupState, repoDir: string): void {
+  if (state.originalWranglerToml === undefined) return;
+  const tomlPath = join(repoDir, "apps/worker/wrangler.toml");
+  try {
+    writeFileSync(tomlPath, state.originalWranglerToml);
+  } catch {
+    // Best effort — user can `git -C ~/.line-harness checkout apps/worker/wrangler.toml`.
+  }
 }
 
 function markDone(state: SetupState, step: string): void {
@@ -223,9 +284,44 @@ export async function runSetup(repoDir: string): Promise<void> {
     );
   }
 
+  // Resume hygiene: a previous (possibly aborted) run may have left
+  // wrangler.toml patched and cached the now-stale baseline in state.json.
+  // Roll the file back to that baseline first, then forget it — the next
+  // applyPatchedConfig() will re-capture the current (possibly git-pulled)
+  // version. Without this, resuming overwrites a freshly-pulled toml with
+  // the stale snapshot.
+  if (state.originalWranglerToml !== undefined) {
+    restoreWranglerToml(state, repoDir);
+    state.originalWranglerToml = undefined;
+    saveState(repoDir, state);
+  }
+
+  // process.exit() skips the finally block in Node, and clack's p.cancel()
+  // inside runSetupInner can call it too. Centralise restore + persist into
+  // one helper so every exit path runs it before exiting.
+  // Critically: also clear originalWranglerToml in state so a future rerun
+  // (after `git pull` may have updated apps/worker/wrangler.toml) does NOT
+  // restore yesterday's snapshot over today's freshly-pulled file.
+  const cleanup = (): void => {
+    restoreWranglerToml(state, repoDir);
+    state.originalWranglerToml = undefined;
+    saveState(repoDir, state);
+  };
+
+  // Best-effort restore on SIGINT (Ctrl-C). Without this the user's repo
+  // is left dirty and `ensureRepo()` next time can't ff-only.
+  const onSignal = (sig: NodeJS.Signals) => {
+    cleanup();
+    process.exit(sig === "SIGINT" ? 130 : 143);
+  };
+  process.once("SIGINT", onSignal);
+  process.once("SIGTERM", onSignal);
+
   try {
     await runSetupInner(state, repoDir);
+    cleanup();
   } catch (error) {
+    cleanup();
     if (error instanceof WranglerError) {
       const help = error.getHelp();
       if (help) {
@@ -239,6 +335,9 @@ export async function runSetup(repoDir: string): Promise<void> {
       process.exit(1);
     }
     throw error;
+  } finally {
+    process.removeListener("SIGINT", onSignal);
+    process.removeListener("SIGTERM", onSignal);
   }
 }
 
@@ -264,6 +363,11 @@ async function runSetupInner(
   }
   // Pin all wrangler commands to this account
   setAccountId(state.accountId);
+  // Patch wrangler.toml's account_id placeholder immediately — d1/worker
+  // commands consult the toml file directly, and an unsubstituted
+  // `YOUR_DEV_ACCOUNT_ID` would 404 every API call.
+  applyPatchedConfig(state, repoDir, state.accountId);
+  saveState(repoDir, state);
 
   // Step 1: Cloudflare R2 billing setup
   if (!isDone(state, "r2billing")) {
@@ -379,9 +483,18 @@ async function runSetupInner(
     const { databaseId, databaseName } = await createDatabase(repoDir, state.projectName!);
     state.d1DatabaseId = databaseId;
     state.d1DatabaseName = databaseName;
+    // Now that the real D1 ID is known, finish patching wrangler.toml so
+    // that `wrangler deploy` / future `d1 execute --file` calls hit the
+    // correct database instead of the placeholder.
+    applyPatchedConfig(state, repoDir, state.accountId, databaseId);
     markDone(state, "database");
     saveState(repoDir, state);
   } else {
+    // Resumed install — wrangler.toml may have been re-cloned with
+    // placeholders, so patch it again with the cached IDs.
+    if (state.d1DatabaseId) {
+      applyPatchedConfig(state, repoDir, state.accountId, state.d1DatabaseId);
+    }
     p.log.success(`D1 データベース: 作成済み（${state.d1DatabaseId}）`);
   }
 

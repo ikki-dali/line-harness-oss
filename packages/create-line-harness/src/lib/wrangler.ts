@@ -105,10 +105,17 @@ export async function wrangler(
     }
   }
 
+  // Default to auto-confirming any interactive prompt wrangler may emit
+  // (e.g. d1 execute --remote's "Ok to proceed?"). Without this, piping
+  // stdout silently demotes wrangler's prompt to a blocking read that the
+  // CLI never satisfies, so the call hangs or silently fails. Callers can
+  // override by passing an explicit `input` value.
+  const input = options?.input ?? "y\n".repeat(50);
+
   try {
     const result = await execa("npx", ["wrangler", ...args], {
       cwd: options?.cwd,
-      input: options?.input,
+      input,
       env,
     });
     return typeof result.stdout === "string" ? result.stdout : "";
