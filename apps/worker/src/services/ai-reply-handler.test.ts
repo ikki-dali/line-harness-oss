@@ -48,7 +48,7 @@ describe('maybeAiReply — handover guard', () => {
     expect(pushMessage).toHaveBeenCalledWith('U_test', [{ type: 'text', text: 'AIの返信です' }]);
   });
 
-  it('does nothing when anthropicApiKey is missing', async () => {
+  it('does nothing when aiApiKey is missing', async () => {
     await maybeAiReply(fakeDb, basePayload, 'token', 'acc-1', undefined);
     expect(getFriendById).not.toHaveBeenCalled();
     expect(pushMessage).not.toHaveBeenCalled();
