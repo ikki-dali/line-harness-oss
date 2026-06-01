@@ -1,4 +1,5 @@
 import { getRecentHistory } from '../lib/conversation-history.js';
+import { getHandover } from '../lib/handover.js';
 import { generateReply } from './ai-reply.js';
 import type { EventPayload } from './event-bus.js';
 import { getFriendById } from '@line-crm/db';
@@ -52,6 +53,9 @@ export async function maybeAiReply(
 
   const friend = await getFriendById(db, payload.friendId);
   if (!friend?.line_user_id) return;
+
+  // 有人対応中（handover='human'）は AI を黙らせる。
+  if (getHandover(friend) === 'human') return;
 
   const newMessage = String(payload.eventData?.text ?? '');
   const history = await getRecentHistory(db, payload.friendId, HISTORY_TURNS);
