@@ -2,7 +2,7 @@ import { getRecentHistory } from '../lib/conversation-history.js';
 import { getHandover } from '../lib/handover.js';
 import { generateReply } from './ai-reply.js';
 import type { EventPayload } from './event-bus.js';
-import { getFriendById } from '@line-crm/db';
+import { getFriendById, jstNow } from '@line-crm/db';
 import { LineClient } from '@line-crm/line-sdk';
 
 const HISTORY_TURNS = 10;
@@ -65,4 +65,32 @@ export async function maybeAiReply(
   // 長文は複数 LINE メッセージに分割し、1 回の push でまとめて送る。
   const messages = splitForLine(reply).map((text) => ({ type: 'text' as const, text }));
   await client.pushMessage(friend.line_user_id, messages);
+
+  // 送信した AI 応答を messages_log に記録する。これで管理画面 inbox に表示され、
+  // 次ターンの会話履歴（getRecentHistory）でも assistant ターンとして拾われる
+  // （= AI が自分の過去発言を踏まえられる）。
+  await logAiReply(db, payload.friendId, reply, _lineAccountId);
+}
+
+/**
+ * AI 応答を messages_log に outgoing/source='ai' で記録する。
+ * push は既に成功しているので、ここの失敗で例外を上げない（ログのみ）。
+ */
+async function logAiReply(
+  db: D1Database,
+  friendId: string,
+  content: string,
+  lineAccountId?: string | null,
+): Promise<void> {
+  try {
+    await db
+      .prepare(
+        `INSERT INTO messages_log (id, friend_id, direction, message_type, content, broadcast_id, scenario_step_id, delivery_type, source, line_account_id, created_at)
+         VALUES (?, ?, 'outgoing', 'text', ?, NULL, NULL, 'push', 'ai', ?, ?)`,
+      )
+      .bind(crypto.randomUUID(), friendId, content, lineAccountId ?? null, jstNow())
+      .run();
+  } catch (err) {
+    console.error('logAiReply failed:', err);
+  }
 }
