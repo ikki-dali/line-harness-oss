@@ -83,9 +83,10 @@ export type Env = {
     ASSETS: Fetcher;
     LINE_CHANNEL_SECRET: string;
     LINE_CHANNEL_ACCESS_TOKEN: string;
-    // AI 応答（キャリアカウンセラー persona）用。未設定の環境では AI フォールバックは
-    // 発火せず無言になる（maybeAiReply がガードする）ため optional。
-    ANTHROPIC_API_KEY?: string;
+    // AI 応答（キャリアカウンセラー persona）用の LLM API キー。プロバイダ中立名。
+    // 現状は OpenAI のキーを入れる（実プロバイダは services/ai-reply.ts が決める）。
+    // 未設定の環境では AI フォールバックは発火せず無言になる（maybeAiReply がガード）ため optional。
+    AI_API_KEY?: string;
     API_KEY: string;
     LEGACY_API_KEY?: string;
     LIFF_URL: string;

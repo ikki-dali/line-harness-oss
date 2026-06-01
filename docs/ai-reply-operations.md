@@ -9,14 +9,22 @@ Claude（persona: キャリアカウンセラー）が自動応答する MVP の
 2. `processAutomations` が keyword ルールを評価。**応答したら true** を返す。
 3. 未応答 かつ テキストあり のとき `maybeAiReply` が発火:
    - `friends.metadata.handover === 'human'` なら**黙る**（有人対応中）
-   - `messages_log` の直近 10 往復を履歴として Claude に渡す
+   - `messages_log` の直近 10 往復を履歴として LLM に渡す
    - 応答を `splitForLine`（500字目安・文境界）で分割し push
-   - Claude が落ちたら fallback 文（無言にしない）
+   - LLM が落ちたら fallback 文（無言にしない）
+
+## LLM プロバイダ
+
+- 実装は **OpenAI Chat Completions**（`services/ai-reply.ts`、model `gpt-4o`）。
+- プロバイダ/モデルの切替は `ai-reply.ts` の定数 + リクエスト整形のみで完結（seam）。
+  呼び出し側（handler / event-bus）は無変更。Anthropic 等へ戻す場合もここだけ直す。
 
 ## 必要シークレット
 
-- `ANTHROPIC_API_KEY`（`wrangler secret put ANTHROPIC_API_KEY`）。
-  未設定なら AI フォールバックは発火せず無言（`maybeAiReply` がガード）。
+- `AI_API_KEY`（プロバイダ中立名。現状は **OpenAI のキー**を入れる）。
+  `wrangler secret put AI_API_KEY`。未設定なら AI フォールバックは発火せず無言
+  （`maybeAiReply` がガード）。
+- **注意**: キーをチャット/コード/git に貼らない。`wrangler secret` か `.dev.vars`（gitignore 済）にのみ置く。
 
 ## 人 × AI 切替（handover）
 

@@ -47,7 +47,7 @@ export async function fireEvent(
   payload: EventPayload,
   lineAccessToken?: string,
   lineAccountId?: string | null,
-  anthropicApiKey?: string,
+  aiApiKey?: string,
 ): Promise<void> {
   // Phase 1: fire webhooks, apply scoring rules, and ad conversion postback concurrently.
   const phase1: Promise<unknown>[] = [
@@ -86,7 +86,7 @@ export async function fireEvent(
     payload.eventData.text.trim().length > 0
   ) {
     const { maybeAiReply } = await import('./ai-reply-handler.js');
-    await maybeAiReply(db, payload, lineAccessToken, lineAccountId, anthropicApiKey);
+    await maybeAiReply(db, payload, lineAccessToken, lineAccountId, aiApiKey);
   }
 }
 
