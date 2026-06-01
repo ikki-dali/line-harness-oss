@@ -31,7 +31,9 @@ export async function generateReply(
       }),
     });
     if (!res.ok) {
-      console.error('Claude API error:', res.status, await res.text());
+      // レスポンスボディは出さない: Anthropic のエラー応答に入力テキスト（= LINE
+      // 利用者の相談内容 = PII）や認証詳細がエコーされうるため、status のみ記録する。
+      console.error('Claude API error:', res.status);
       return null;
     }
     const data = (await res.json()) as { content: Array<{ type: string; text?: string }> };
