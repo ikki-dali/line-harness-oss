@@ -64,6 +64,26 @@ export async function createConversionPoint(
   return (await getConversionPointById(db, id))!;
 }
 
+/**
+ * event_type に対応する CV ポイントを取得、無ければ作成して返す。
+ * （TimeRex 予約確定など、コード側から CV を発火する用途で冪等に使う）
+ * 注: conversion_points.event_type に UNIQUE 制約は無いため、ごく稀な同時実行で
+ * 同 event_type が2行できる可能性はあるが、計測上の害は軽微。
+ */
+export async function ensureConversionPointByEventType(
+  db: D1Database,
+  eventType: string,
+  name: string,
+  value?: number | null,
+): Promise<ConversionPoint> {
+  const existing = await db
+    .prepare(`SELECT * FROM conversion_points WHERE event_type = ? LIMIT 1`)
+    .bind(eventType)
+    .first<ConversionPoint>();
+  if (existing) return existing;
+  return createConversionPoint(db, { name, eventType, value: value ?? null });
+}
+
 export async function deleteConversionPoint(
   db: D1Database,
   id: string,

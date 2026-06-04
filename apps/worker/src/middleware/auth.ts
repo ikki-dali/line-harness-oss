@@ -44,6 +44,9 @@ export async function authMiddleware(c: Context<Env>, next: Next): Promise<Respo
     path === '/setup' ||
     path === '/api/integrations/stripe/webhook' ||
     path.match(/^\/api\/webhooks\/incoming\/[^/]+\/receive$/) ||
+    // TimeRex 受け口は固定トークン (x-timerex-authorization) で認可するため
+    // Authorization ヘッダ認証を skip。完全一致のみ（過剰マッチ防止）。
+    path === '/api/webhooks/timerex/receive' ||
     path.match(/^\/api\/forms\/[^/]+\/submit$/) ||
     path.match(/^\/api\/forms\/[^/]+\/opened$/) ||
     path.match(/^\/api\/forms\/[^/]+\/partial$/) ||

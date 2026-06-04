@@ -12,6 +12,7 @@ import {
   deleteOutgoingWebhook,
 } from '@line-crm/db';
 import type { Env } from '../index.js';
+import { hmacSha256Hex, timingSafeEqual } from '../lib/hmac.js';
 
 const webhooks = new Hono<Env>();
 
@@ -38,31 +39,6 @@ function validateHttpsUrl(url: unknown): string | null {
     return 'url must use https:// scheme';
   }
   return null;
-}
-
-// Constant-time hex-string compare to avoid timing oracles.
-function safeEqualHex(a: string, b: string): boolean {
-  if (a.length !== b.length) return false;
-  let diff = 0;
-  for (let i = 0; i < a.length; i++) {
-    diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
-  }
-  return diff === 0;
-}
-
-async function computeHmacSha256Hex(secret: string, body: string): Promise<string> {
-  const encoder = new TextEncoder();
-  const key = await crypto.subtle.importKey(
-    'raw',
-    encoder.encode(secret),
-    { name: 'HMAC', hash: 'SHA-256' },
-    false,
-    ['sign'],
-  );
-  const signature = await crypto.subtle.sign('HMAC', key, encoder.encode(body));
-  return Array.from(new Uint8Array(signature))
-    .map((b) => b.toString(16).padStart(2, '0'))
-    .join('');
 }
 
 // ========== 受信Webhook ==========
@@ -356,8 +332,8 @@ webhooks.post('/api/webhooks/incoming/:id/receive', async (c) => {
     }
 
     const rawBody = await c.req.text();
-    const expected = await computeHmacSha256Hex(wh.secret, rawBody);
-    if (!safeEqualHex(signatureHeader.toLowerCase(), expected)) {
+    const expected = await hmacSha256Hex(wh.secret, rawBody);
+    if (!timingSafeEqual(signatureHeader.toLowerCase(), expected)) {
       return c.json({ success: false, error: 'Invalid signature' }, 401);
     }
 

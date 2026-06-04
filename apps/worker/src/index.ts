@@ -21,6 +21,8 @@ import { processDueEventReminders } from './services/event-booking-reminders.js'
 import { runEventBookingExpirer } from './services/event-booking-expirer.js';
 import { sendEventBookingNotification } from './services/event-booking-notifier.js';
 import { sendBookingNotification } from './services/booking-notifier.js';
+import { processDueTimerexReminders } from './services/timerex-reminders.js';
+import { sendTimerexNotification } from './services/timerex-notifier.js';
 import { DEFAULT_ACCOUNT_SETTINGS } from './services/booking-types.js';
 import { authMiddleware } from './middleware/auth.js';
 import { rateLimitMiddleware } from './middleware/rate-limit.js';
@@ -73,6 +75,7 @@ import { profileRefresh } from './routes/profile-refresh.js';
 import { richMenuGroups } from './routes/rich-menu-groups.js';
 import adminVersion from './routes/admin-version.js';
 import adminUpdate from './routes/admin-update.js';
+import { timerex } from './routes/timerex.js';
 
 export type Env = {
   Bindings: {
@@ -95,6 +98,8 @@ export type Env = {
     X_HARNESS_URL?: string;  // Optional: X Harness API URL for account linking
     IG_HARNESS_URL?: string;  // Optional: IG Harness API URL for cross-platform linking
     IG_HARNESS_LINK_SECRET?: string;  // Shared secret for IG Harness link-line webhook
+    TIMEREX_WEBHOOK_TOKEN?: string;  // TimeRex Webhook 固定トークン (x-timerex-authorization 照合)
+    TIMEREX_LINK_SECRET?: string;    // 予約リンク署名用 secret (なりすまし対策 案A)
     // Phase 5 self-update — consumed by /admin/update/*. Defaults live in
     // wrangler.toml [vars]; secrets (CF_API_TOKEN, ADMIN_API_KEY) come from
     // `wrangler secret put`. All are optional at the type level so the rest
@@ -174,6 +179,7 @@ app.route('/', messageTemplates);
 app.route('/', dedupPreview);
 app.route('/', profileRefresh);
 app.route('/', richMenuGroups);
+app.route('/', timerex);
 
 // Phase 5 (upgrade flow) — public build metadata endpoint. Mounted under
 // /admin/ but intentionally unauthenticated: the dashboard fetches /admin/version
@@ -627,6 +633,20 @@ async function scheduled(
     }
   } catch (e) {
     console.error('event-booking-reminders error:', e);
+  }
+
+  // TimeRex booking reminders — every 5-minute tick scans due reminders.
+  try {
+    const result = await processDueTimerexReminders(env.DB, {
+      now: new Date(),
+      sender: sendTimerexNotification,
+      reminderHoursBefore: DEFAULT_ACCOUNT_SETTINGS.reminder_hours_before,
+    });
+    if (result.sent + result.failed > 0) {
+      console.log(`[timerex-reminders] sent=${result.sent} failed=${result.failed}`);
+    }
+  } catch (e) {
+    console.error('timerex-reminders error:', e);
   }
 
   // Event-booking expirer — 6h cron tick.
