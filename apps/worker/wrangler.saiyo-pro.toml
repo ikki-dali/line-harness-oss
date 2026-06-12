@@ -1,0 +1,32 @@
+name = "saiyo-pro-harness"
+main = "src/index.ts"
+compatibility_date = "2024-12-01"
+compatibility_flags = ["nodejs_compat"]
+workers_dev = true
+account_id = "5e2fff02dfc9257c6ce6c8ac6bcba4cb"
+
+[assets]
+directory = "dist/client"
+binding = "ASSETS"
+run_worker_first = ["/"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "saiyo-pro-harness"
+database_id = "2e3c1f3e-682c-4bc7-86c8-9cfe6aa876cc"
+
+[[r2_buckets]]
+binding = "IMAGES"
+bucket_name = "saiyo-pro-harness-images"
+
+[vars]
+WORKER_NAME = "saiyo-pro-harness"
+ADMIN_PAGES_PROJECT = "saiyo-pro-harness-admin-46f2432b"
+LIFF_PAGES_PROJECT = "saiyo-pro-harness-liff"
+D1_DATABASE_ID = "2e3c1f3e-682c-4bc7-86c8-9cfe6aa876cc"
+MANIFEST_URL = "https://github.com/Shudesu/line-harness-oss/releases/latest/download/release-manifest.json"
+WORKER_URL = "https://saiyo-pro-harness.ikki-y.workers.dev"
+WORKER_PUBLIC_URL = "https://saiyo-pro-harness.ikki-y.workers.dev"
+ADMIN_PUBLIC_URL = "https://saiyo-pro-harness-admin-46f2432b.pages.dev"
+LIFF_PUBLIC_URL = "https://saiyo-pro-harness.ikki-y.workers.dev"
+CF_ACCOUNT_ID = "5e2fff02dfc9257c6ce6c8ac6bcba4cb"
