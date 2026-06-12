@@ -81,6 +81,7 @@ export async function fireEvent(
   if (
     eventType === 'message_received' &&
     !replied &&
+    payload.eventData?.matched !== true &&
     payload.friendId &&
     typeof payload.eventData?.text === 'string' &&
     payload.eventData.text.trim().length > 0
