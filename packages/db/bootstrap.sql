@@ -115,6 +115,24 @@ CREATE TABLE automations (
   updated_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', '+9 hours'))
 , line_account_id TEXT);
 
+CREATE TABLE saiyo_pro_applications (
+  id                  TEXT PRIMARY KEY,
+  friend_id           TEXT NOT NULL UNIQUE,
+  line_account_id     TEXT,
+  age                 TEXT,
+  gender              TEXT,
+  location            TEXT,
+  income              TEXT,
+  eligibility_status  TEXT NOT NULL DEFAULT 'pending'
+    CHECK (eligibility_status IN ('pending','eligible','ineligible')),
+  interview_url       TEXT,
+  source              TEXT NOT NULL DEFAULT 'line_questionnaire',
+  created_at          TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', '+9 hours')),
+  updated_at          TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', '+9 hours')),
+  FOREIGN KEY (friend_id) REFERENCES friends(id),
+  FOREIGN KEY (line_account_id) REFERENCES line_accounts(id)
+);
+
 CREATE TABLE booking_idempotency_keys (
   key              TEXT PRIMARY KEY,
   line_account_id  TEXT NOT NULL,
@@ -754,6 +772,49 @@ CREATE TABLE templates (
   updated_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', '+9 hours'))
 );
 
+CREATE TABLE timerex_bookings (
+  event_id           TEXT PRIMARY KEY,  -- TimeRex event.id
+  calendar_url_path  TEXT,
+  calendar_name      TEXT,
+  line_account_id    TEXT,              -- 通知に使う active primary account
+  friend_id          TEXT,              -- 紐付いた friend（不在なら NULL）
+  line_user_id       TEXT,              -- url_params から回収（sig 検証済のみ）
+  host_name          TEXT,              -- 担当（hosts[0].name）
+  starts_at          TEXT,              -- UTC ISO8601
+  ends_at            TEXT,              -- UTC ISO8601
+  status             TEXT NOT NULL DEFAULT 'confirmed'
+    CHECK (status IN ('confirmed','cancelled','rescheduled')),
+  is_changed         INTEGER NOT NULL DEFAULT 0,
+  old_event_id       TEXT,
+  created_at         TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', '+9 hours')),
+  updated_at         TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', '+9 hours')),
+  FOREIGN KEY (line_account_id) REFERENCES line_accounts(id),
+  FOREIGN KEY (friend_id) REFERENCES friends(id)
+);
+
+CREATE TABLE timerex_events (
+  idempotency_key  TEXT PRIMARY KEY,   -- "<event_id>:<webhook_type>"
+  event_id         TEXT NOT NULL,
+  webhook_type     TEXT NOT NULL,
+  received_at      TEXT NOT NULL,      -- UTC ISO8601 (Worker 書込)
+  processed_at     TEXT                -- UTC ISO8601、処理完了時に更新
+);
+
+CREATE TABLE timerex_reminders (
+  id            TEXT PRIMARY KEY,
+  event_id      TEXT NOT NULL,         -- timerex_bookings.event_id
+  kind          TEXT NOT NULL CHECK (kind IN ('day_before','hours_before')),
+  scheduled_at  TEXT NOT NULL,         -- UTC ISO8601 (Worker 書込)
+  sent_at       TEXT,                  -- UTC ISO8601
+  status        TEXT NOT NULL DEFAULT 'pending'
+    CHECK (status IN ('pending','sent','failed','failed_permanent','cancelled')),
+  retry_count   INTEGER NOT NULL DEFAULT 0,
+  last_error    TEXT,
+  FOREIGN KEY (event_id) REFERENCES timerex_bookings(event_id),
+  -- 同一予約・同一種別のリマインドの二重登録を防ぐ（handler の再試行/再配信対策）。
+  UNIQUE (event_id, kind)
+);
+
 CREATE TABLE tracked_links (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
@@ -817,6 +878,12 @@ CREATE INDEX idx_automation_logs_automation ON automation_logs (automation_id);
 CREATE INDEX idx_automations_active ON automations (is_active);
 
 CREATE INDEX idx_automations_event ON automations (event_type);
+
+CREATE INDEX idx_saiyo_pro_applications_line_account
+  ON saiyo_pro_applications (line_account_id, updated_at);
+
+CREATE INDEX idx_saiyo_pro_applications_status
+  ON saiyo_pro_applications (eligibility_status, updated_at);
 
 CREATE INDEX idx_bookings_account_status_starts ON bookings (line_account_id, status, starts_at);
 
@@ -953,6 +1020,14 @@ CREATE INDEX idx_stripe_events_friend ON stripe_events (friend_id);
 CREATE INDEX idx_stripe_events_type ON stripe_events (event_type);
 
 CREATE INDEX idx_templates_category ON templates (category);
+
+CREATE INDEX idx_timerex_bookings_friend ON timerex_bookings (friend_id);
+
+CREATE INDEX idx_timerex_bookings_starts ON timerex_bookings (status, starts_at);
+
+CREATE INDEX idx_timerex_events_event ON timerex_events (event_id);
+
+CREATE INDEX idx_timerex_reminders_due ON timerex_reminders (status, scheduled_at);
 
 CREATE INDEX idx_update_history_started ON update_history(started_at DESC);
 

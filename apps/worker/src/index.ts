@@ -76,6 +76,7 @@ import { richMenuGroups } from './routes/rich-menu-groups.js';
 import adminVersion from './routes/admin-version.js';
 import adminUpdate from './routes/admin-update.js';
 import { timerex } from './routes/timerex.js';
+import { demoChat } from './routes/demo-chat.js';
 
 export type Env = {
   Bindings: {
@@ -123,6 +124,8 @@ export type Env = {
 };
 
 const app = new Hono<Env>();
+
+app.get('/', (c) => c.redirect('/demo-chat'));
 
 // CORS — allow all origins for MVP
 app.use('*', cors({ origin: '*' }));
@@ -180,6 +183,7 @@ app.route('/', dedupPreview);
 app.route('/', profileRefresh);
 app.route('/', richMenuGroups);
 app.route('/', timerex);
+app.route('/', demoChat);
 
 // Phase 5 (upgrade flow) — public build metadata endpoint. Mounted under
 // /admin/ but intentionally unauthenticated: the dashboard fetches /admin/version

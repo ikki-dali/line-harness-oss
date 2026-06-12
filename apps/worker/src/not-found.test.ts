@@ -20,7 +20,7 @@ vi.mock('@line-crm/db', () => ({
   recoverStuckDeliveries: vi.fn(),
 }));
 
-import { notFoundHandler, type Env } from './index.js';
+import worker, { notFoundHandler, type Env } from './index.js';
 
 function makeApp(env: Partial<Env['Bindings']>) {
   const app = new Hono<Env>();
@@ -30,6 +30,16 @@ function makeApp(env: Partial<Env['Bindings']>) {
 }
 
 describe('notFoundHandler — root / request', () => {
+  it('redirects the public root to the company applicant workspace', async () => {
+    const res = await worker.fetch(
+      new Request('https://worker.example.com/'),
+      { DB: {} as D1Database } as Env['Bindings'],
+      { waitUntil: vi.fn(), passThroughOnException: vi.fn(), props: {} } as unknown as ExecutionContext,
+    );
+    expect(res.status).toBe(302);
+    expect(res.headers.get('location')).toBe('/demo-chat');
+  });
+
   it('returns 404 JSON when ASSETS binding is undefined (no TypeError)', async () => {
     const fetchApp = makeApp({ DB: {} as D1Database });
     const res = await fetchApp('/');

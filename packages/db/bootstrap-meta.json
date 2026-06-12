@@ -50,7 +50,9 @@
     "042_tracked_links_og.sql",
     "043_events_og.sql",
     "044_forms_og.sql",
-    "045_menus_auto_tag.sql"
+    "045_menus_auto_tag.sql",
+    "046_timerex.sql",
+    "047_saiyo_pro_applications.sql"
   ],
-  "migrationCount": 51
+  "migrationCount": 53
 }
