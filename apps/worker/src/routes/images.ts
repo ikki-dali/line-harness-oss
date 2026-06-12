@@ -73,7 +73,7 @@ images.post('/api/images', async (c) => {
 });
 
 // GET /images/:key — serve image (public, no auth)
-images.get('/images/:key', async (c) => {
+images.get('/images/:key{.+}', async (c) => {
   const key = c.req.param('key');
   const object = await c.env.IMAGES.get(key);
 
