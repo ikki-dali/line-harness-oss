@@ -32,6 +32,13 @@ import {
   DEMO_SERVICE_NAME,
   DEMO_TIMEREX_URL,
   DEMO_WORKER_URL,
+  SAIYO_PRO_BRAND_BLUE,
+  SAIYO_PRO_BRAND_MUTED,
+  SAIYO_PRO_BRAND_NAVY,
+  SAIYO_PRO_BRAND_ORANGE,
+  SAIYO_PRO_BRAND_PRIMARY,
+  SAIYO_PRO_BRAND_SECONDARY,
+  SAIYO_PRO_BRAND_SOFT_BG,
   SAIYO_PRO_APPLICATION_COMPLETE_IMAGE_URL,
   SAIYO_PRO_APPLICATION_START_IMAGE_URL,
   resolveSaiyoProDemoCandidateByLineUserId,
@@ -1339,17 +1346,17 @@ function buildSaiyoProApplicationResultFlex(): string {
       paddingAll: '18px',
       spacing: 'md',
       contents: [
-        { type: 'text', text: '採用PROから求人案内が届きました', size: 'xl', weight: 'bold', color: '#111827', wrap: true },
-        { type: 'text', text: '内容が合いそうな方には、次のステップとして面談日程をご案内しています。', size: 'sm', color: '#374151', wrap: true },
+        { type: 'text', text: '採用PROから求人案内が届きました', size: 'xl', weight: 'bold', color: SAIYO_PRO_BRAND_NAVY, wrap: true },
+        { type: 'text', text: '内容が合いそうな方には、次のステップとして面談日程をご案内しています。', size: 'sm', color: SAIYO_PRO_BRAND_MUTED, wrap: true },
         {
           type: 'box',
           layout: 'vertical',
-          backgroundColor: '#EFF6FF',
+          backgroundColor: SAIYO_PRO_BRAND_SOFT_BG,
           cornerRadius: 'md',
           paddingAll: '12px',
           contents: [
-            { type: 'text', text: '求人案内', size: 'xs', color: '#2563EB', weight: 'bold' },
-            { type: 'text', text: '採用PRO / 正社員求人', size: 'sm', color: '#111827', wrap: true, margin: 'sm' },
+            { type: 'text', text: '求人案内', size: 'xs', color: SAIYO_PRO_BRAND_PRIMARY, weight: 'bold' },
+            { type: 'text', text: '採用PRO / 正社員求人', size: 'sm', color: SAIYO_PRO_BRAND_NAVY, wrap: true, margin: 'sm' },
           ],
         },
       ],
@@ -1362,7 +1369,7 @@ function buildSaiyoProApplicationResultFlex(): string {
         {
           type: 'button',
           style: 'primary',
-          color: '#2563EB',
+          color: SAIYO_PRO_BRAND_PRIMARY,
           height: 'sm',
           action: {
             type: 'uri',
@@ -2403,17 +2410,17 @@ function buildDemoApplicationStartFlex(): string {
       paddingAll: '18px',
       spacing: 'md',
       contents: [
-        { type: 'text', text: '採用PRO 求人案内', size: 'xl', weight: 'bold', color: '#111827', wrap: true },
-        { type: 'text', text: 'ご登録ありがとうございます！あなたに合う求人をご案内するために、かんたんな確認をお願いします。1分ほどで完了します。', size: 'sm', color: '#374151', wrap: true },
+        { type: 'text', text: '採用PRO 求人案内', size: 'xl', weight: 'bold', color: SAIYO_PRO_BRAND_NAVY, wrap: true },
+        { type: 'text', text: 'ご登録ありがとうございます！あなたに合う求人をご案内するために、かんたんな確認をお願いします。1分ほどで完了します。', size: 'sm', color: SAIYO_PRO_BRAND_MUTED, wrap: true },
         {
           type: 'box',
           layout: 'vertical',
-          backgroundColor: '#EFF6FF',
+          backgroundColor: SAIYO_PRO_BRAND_SOFT_BG,
           cornerRadius: 'md',
           paddingAll: '12px',
           contents: [
-            { type: 'text', text: '確認する内容', size: 'xs', color: '#2563EB', weight: 'bold' },
-            { type: 'text', text: '年齢 / 性別 / 希望勤務地 / 現在の年収帯', size: 'sm', color: '#111827', wrap: true, margin: 'sm' },
+            { type: 'text', text: '確認する内容', size: 'xs', color: SAIYO_PRO_BRAND_PRIMARY, weight: 'bold' },
+            { type: 'text', text: '年齢 / 性別 / 希望勤務地 / 現在の年収帯', size: 'sm', color: SAIYO_PRO_BRAND_NAVY, wrap: true, margin: 'sm' },
           ],
         },
       ],
@@ -2426,7 +2433,7 @@ function buildDemoApplicationStartFlex(): string {
         {
           type: 'button',
           style: 'primary',
-          color: '#2563EB',
+          color: SAIYO_PRO_BRAND_PRIMARY,
           height: 'sm',
           action: {
             type: 'message',
@@ -2450,7 +2457,7 @@ function getSaiyoProApplicationQuestionConfig(question: SaiyoProApplicationQuest
       return {
         title: '年齢帯を教えてください',
         description: '求人案内の条件確認のため、該当する項目を選んでください。',
-        color: '#2563EB',
+        color: SAIYO_PRO_BRAND_PRIMARY,
         options: [
           { label: '22〜24歳', value: 'age_22_24', primary: true },
           { label: '25〜27歳', value: 'age_25_27' },
@@ -2462,7 +2469,7 @@ function getSaiyoProApplicationQuestionConfig(question: SaiyoProApplicationQuest
       return {
         title: '性別を教えてください',
         description: '今回の応募条件確認に使用します。',
-        color: '#16A34A',
+        color: SAIYO_PRO_BRAND_SECONDARY,
         options: [
           { label: '男性', value: 'male', primary: true },
           { label: '女性', value: 'female' },
@@ -2473,7 +2480,7 @@ function getSaiyoProApplicationQuestionConfig(question: SaiyoProApplicationQuest
       return {
         title: '希望勤務地を教えてください',
         description: '勤務可能なエリアを選んでください。',
-        color: '#7C3AED',
+        color: SAIYO_PRO_BRAND_BLUE,
         options: [
           { label: '関東', value: 'kanto', primary: true },
           { label: '関西', value: 'kansai' },
@@ -2485,7 +2492,7 @@ function getSaiyoProApplicationQuestionConfig(question: SaiyoProApplicationQuest
       return {
         title: '現在の年収帯を教えてください',
         description: '面談時の参考情報として使用します。',
-        color: '#4B5563',
+        color: SAIYO_PRO_BRAND_ORANGE,
         options: [
           { label: '300万円未満', value: 'under300', primary: true },
           { label: '300〜400万円', value: '300_400' },

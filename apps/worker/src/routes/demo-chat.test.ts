@@ -457,6 +457,8 @@ describe('demo candidate profile', () => {
     ]);
     const pushPayload = linePushMessageMock.mock.calls[0]?.[1]?.[0] as { contents?: unknown } | undefined;
     expect(JSON.stringify(pushPayload?.contents)).toContain('/images/saiyo-pro/job-arrived-20260613.png');
+    expect(JSON.stringify(pushPayload?.contents)).toContain('#00B8C8');
+    expect(JSON.stringify(pushPayload?.contents)).not.toContain('#2563EB');
   });
 
   test('company job notification uses the primary demo candidate instead of the latest touched candidate', async () => {

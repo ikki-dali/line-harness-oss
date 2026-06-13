@@ -353,6 +353,10 @@ describe('Saiyo Pro candidate application questionnaire', () => {
       aspectMode: 'cover',
     });
     expect(flex.hero.url).toContain('/images/saiyo-pro/application-start');
+    expect(JSON.stringify(flex)).toContain('#00B8C8');
+    expect(JSON.stringify(flex)).toContain('#EAFBF8');
+    expect(JSON.stringify(flex)).not.toContain('#2563EB');
+    expect(JSON.stringify(flex)).not.toContain('#EFF6FF');
     expect(JSON.stringify(flex)).toContain('採用PRO 求人案内');
     expect(flex.footer.contents[0]?.action).toEqual({
       type: 'message',
@@ -389,6 +393,10 @@ describe('Saiyo Pro candidate application questionnaire', () => {
       aspectMode: 'cover',
     });
     expect(flex.hero.url).toContain('/images/saiyo-pro/application-complete-20260613.png');
+    expect(JSON.stringify(flex)).toContain('#00B8C8');
+    expect(JSON.stringify(flex)).toContain('#EAFBF8');
+    expect(JSON.stringify(flex)).not.toContain('#2563EB');
+    expect(JSON.stringify(flex)).not.toContain('#EFF6FF');
   });
 
   test('candidate application postbacks save answers and advance to the next question', async () => {
