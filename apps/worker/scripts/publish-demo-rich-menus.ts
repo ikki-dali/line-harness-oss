@@ -41,6 +41,11 @@ type DemoRichMenuAction =
   | { type: 'postback'; label: string; data: string }
   | { type: 'uri'; label: string; uri: string };
 
+type FriendLineUserRow = {
+  line_account_id: string | null;
+  line_user_id: string | null;
+};
+
 export const specs: DemoRichMenuSpec[] = [
   {
     accountId: COMPANY_ACCOUNT_ID,
@@ -136,6 +141,7 @@ export const specs: DemoRichMenuSpec[] = [
 
 async function main() {
   const accounts = await loadLineAccountTokens();
+  const userIdsByAccount = await loadFriendUserIdsByAccount();
 
   await mkdir(OUT_DIR, { recursive: true });
 
@@ -153,6 +159,9 @@ async function main() {
     const image = await readFile(imagePath);
     await lineImage(token, created.richMenuId, image);
     await lineJson<undefined>(token, `/v2/bot/user/all/richmenu/${encodeURIComponent(created.richMenuId)}`, { method: 'POST' });
+    for (const userId of userIdsByAccount.get(spec.accountId) ?? []) {
+      await unlinkUserRichMenu(token, userId);
+    }
 
     console.log(`${spec.name}: ${created.richMenuId}`);
   }
@@ -224,6 +233,10 @@ async function lineImage(token: string, richMenuId: string, image: Buffer): Prom
   }
 }
 
+async function unlinkUserRichMenu(token: string, userId: string): Promise<void> {
+  await lineJson<undefined>(token, `/v2/bot/user/${encodeURIComponent(userId)}/richmenu`, { method: 'DELETE' });
+}
+
 async function loadLineAccountTokens(): Promise<Map<string, string>> {
   const ids = specs.map((spec) => spec.accountId);
   const { stdout } = await execFileAsync('wrangler', [
@@ -238,6 +251,32 @@ async function loadLineAccountTokens(): Promise<Map<string, string>> {
   const parsed = JSON.parse(stdout) as Array<{ results?: Array<{ id: string; channel_access_token: string }> }>;
   const rows = parsed[0]?.results ?? [];
   return new Map(rows.map((row) => [row.id, row.channel_access_token]));
+}
+
+async function loadFriendUserIdsByAccount(): Promise<Map<string, string[]>> {
+  const ids = specs.map((spec) => spec.accountId);
+  const { stdout } = await execFileAsync('wrangler', [
+    'd1',
+    'execute',
+    'saiyo-pro-harness',
+    '--remote',
+    '--json',
+    '--command',
+    `SELECT line_account_id, line_user_id FROM friends WHERE is_following = 1 AND line_account_id IN (${ids.map((id) => `'${id}'`).join(',')});`,
+  ]);
+  const parsed = JSON.parse(stdout) as Array<{ results?: FriendLineUserRow[] }>;
+  return groupFriendUserIdsByAccount(parsed[0]?.results ?? []);
+}
+
+export function groupFriendUserIdsByAccount(rows: FriendLineUserRow[]): Map<string, string[]> {
+  const grouped = new Map<string, string[]>();
+  for (const row of rows) {
+    if (!row.line_account_id || !row.line_user_id) continue;
+    const userIds = grouped.get(row.line_account_id) ?? [];
+    userIds.push(row.line_user_id);
+    grouped.set(row.line_account_id, userIds);
+  }
+  return grouped;
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

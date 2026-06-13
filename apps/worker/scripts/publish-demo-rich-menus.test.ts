@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
 
-import { buildRichMenuPayload, specs } from './publish-demo-rich-menus.js';
+import { buildRichMenuPayload, groupFriendUserIdsByAccount, specs } from './publish-demo-rich-menus.js';
 
 describe('demo rich menu payloads', () => {
   test('company rich menu exposes applicant handling, job management, and account linking', () => {
@@ -36,5 +36,19 @@ describe('demo rich menu payloads', () => {
     expect(actions[1]).toEqual({ type: 'uri', label: 'チャット', uri: 'https://saiyo-pro-harness.ikki-y.workers.dev/demo-candidate-chat?candidate=yamada' });
     expect(actions[2]).toEqual({ type: 'uri', label: 'プロフィール', uri: 'https://saiyo-pro-harness.ikki-y.workers.dev/demo-candidate-chat?candidate=yamada&profile=1' });
     expect(actions[3]).toEqual({ type: 'postback', label: '応募状況', data: 'demo:candidate-menu:status' });
+  });
+
+  test('groups existing friend user IDs by line account for user-specific rich menu unlinking', () => {
+    const grouped = groupFriendUserIdsByAccount([
+      { line_account_id: 'saiyo-pro-company', line_user_id: 'U-company-1' },
+      { line_account_id: 'saiyo-pro-company', line_user_id: 'U-company-2' },
+      { line_account_id: 'saiyo-pro-candidate', line_user_id: 'U-candidate-1' },
+      { line_account_id: 'saiyo-pro-candidate', line_user_id: '' },
+      { line_account_id: null, line_user_id: 'U-no-account' },
+    ]);
+
+    expect(grouped.get('saiyo-pro-company')).toEqual(['U-company-1', 'U-company-2']);
+    expect(grouped.get('saiyo-pro-candidate')).toEqual(['U-candidate-1']);
+    expect(grouped.has('')).toBe(false);
   });
 });
