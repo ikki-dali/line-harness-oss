@@ -12,6 +12,7 @@ dist/
 .mcp.json
 .line-harness-config.json
 .planning/
+.superpowers/
 tmp/
 apps/worker/tmp/
 *.toml.bak
