@@ -61,7 +61,7 @@ export const DEMO_COMPANY_NAME = 'Ikki Yamamoto 会社アカウント';
 export const DEMO_TIMEREX_URL = 'https://timerex.net/';
 export const DEMO_WORKER_URL = 'https://saiyo-pro-harness.ikki-y.workers.dev';
 export const DEMO_CHAT_VERSION = '20260611a';
-export const SAIYO_PRO_APPLICATION_START_IMAGE_URL = `${DEMO_WORKER_URL}/images/saiyo-pro/application-start.png`;
+export const SAIYO_PRO_APPLICATION_START_IMAGE_URL = `${DEMO_WORKER_URL}/images/saiyo-pro/application-start-20260613.png`;
 export const SAIYO_PRO_OFFICE_IMAGE_URL = `${DEMO_WORKER_URL}/images/saiyo-pro/office.png`;
 
 export const DEMO_CANDIDATES: Record<string, DemoCandidate> = {

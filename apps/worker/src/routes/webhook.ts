@@ -2394,7 +2394,7 @@ function buildDemoApplicationStartFlex(): string {
       type: 'image',
       url: SAIYO_PRO_APPLICATION_START_IMAGE_URL,
       size: 'full',
-      aspectRatio: '20:10',
+      aspectRatio: '3:2',
       aspectMode: 'cover',
     },
     body: {

@@ -349,7 +349,7 @@ describe('Saiyo Pro candidate application questionnaire', () => {
     expect(flex.type).toBe('bubble');
     expect(flex.hero).toMatchObject({
       type: 'image',
-      aspectRatio: '20:10',
+      aspectRatio: '3:2',
       aspectMode: 'cover',
     });
     expect(flex.hero.url).toContain('/images/saiyo-pro/application-start');
