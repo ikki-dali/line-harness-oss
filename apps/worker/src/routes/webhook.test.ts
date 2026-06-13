@@ -54,7 +54,7 @@ vi.mock('../services/step-delivery.js', () => ({
 
 import { getFriendByLineUserId, getLineAccounts, jstNow, upsertFriend } from '@line-crm/db';
 import { verifySignature } from '@line-crm/line-sdk';
-import { buildDemoApplicationStartFlex, buildDemoApplicationQuestionFlex, buildDemoCandidateJobsLinkFlex, buildDemoCandidateListFlex, buildDemoCandidateSelfMenuFlex, buildDemoCandidateCompanyCardsFlex, buildDemoCompanyAccountFromProfile, buildDemoCompanyMenuReply, buildDemoWelcomeText, webhook } from './webhook.js';
+import { buildDemoApplicationStartFlex, buildDemoApplicationQuestionFlex, buildDemoCandidateJobsLinkFlex, buildDemoCandidateListFlex, buildDemoCandidateSelfMenuFlex, buildDemoCandidateCompanyCardsFlex, buildDemoCompanyAccountFromProfile, buildDemoCompanyMenuReply, buildDemoWelcomeText, buildSaiyoProApplicationResultFlex, webhook } from './webhook.js';
 
 function setupApp() {
   const app = new Hono();
@@ -374,6 +374,21 @@ describe('Saiyo Pro candidate application questionnaire', () => {
     expect(flex.footer.contents[1]?.action).toEqual({ type: 'postback', label: '25〜27歳', data: 'demo:application:age:age_25_27' });
     expect(flex.footer.contents[2]?.action).toEqual({ type: 'postback', label: '28〜30歳', data: 'demo:application:age:age_28_30' });
     expect(flex.footer.contents[3]?.action).toEqual({ type: 'postback', label: '31歳以上', data: 'demo:application:age:age_31_plus' });
+  });
+
+  test('application result flex uses the completion banner', () => {
+    const flex = JSON.parse(buildSaiyoProApplicationResultFlex()) as {
+      type: string;
+      hero: { type: string; url: string; aspectRatio: string; aspectMode: string };
+    };
+
+    expect(flex.type).toBe('bubble');
+    expect(flex.hero).toMatchObject({
+      type: 'image',
+      aspectRatio: '3:2',
+      aspectMode: 'cover',
+    });
+    expect(flex.hero.url).toContain('/images/saiyo-pro/application-complete-20260613.png');
   });
 
   test('candidate application postbacks save answers and advance to the next question', async () => {
@@ -853,7 +868,7 @@ describe('Saiyo Pro candidate application questionnaire', () => {
     expect(lineReplyMessageMock).toHaveBeenCalledWith('reply-token', [
       expect.objectContaining({
         type: 'flex',
-        text: expect.stringContaining('/images/saiyo-pro/office'),
+        text: expect.stringContaining('/images/saiyo-pro/application-complete-20260613.png'),
       }),
     ]);
     expect(lineReplyMessageMock).toHaveBeenCalledWith('reply-token', [

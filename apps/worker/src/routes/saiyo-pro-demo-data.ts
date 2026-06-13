@@ -62,6 +62,8 @@ export const DEMO_TIMEREX_URL = 'https://timerex.net/';
 export const DEMO_WORKER_URL = 'https://saiyo-pro-harness.ikki-y.workers.dev';
 export const DEMO_CHAT_VERSION = '20260611a';
 export const SAIYO_PRO_APPLICATION_START_IMAGE_URL = `${DEMO_WORKER_URL}/images/saiyo-pro/application-start-20260613.png`;
+export const SAIYO_PRO_APPLICATION_COMPLETE_IMAGE_URL = `${DEMO_WORKER_URL}/images/saiyo-pro/application-complete-20260613.png`;
+export const SAIYO_PRO_JOB_ARRIVED_IMAGE_URL = `${DEMO_WORKER_URL}/images/saiyo-pro/job-arrived-20260613.png`;
 export const SAIYO_PRO_OFFICE_IMAGE_URL = `${DEMO_WORKER_URL}/images/saiyo-pro/office.png`;
 
 export const DEMO_CANDIDATES: Record<string, DemoCandidate> = {
@@ -127,7 +129,7 @@ export const DEFAULT_COMPANY_JOB: DemoCompanyJob = {
   hourlyWage: '面談時にご案内',
   shift: '週5日 / 配属先に準ずる',
   description: '研修後、ITインフラやシステム運用の業務を担当します。',
-  bannerUrl: 'https://placehold.co/1024x520/16A34A/FFFFFF/png?text=Staff+Wanted',
+  bannerUrl: SAIYO_PRO_JOB_ARRIVED_IMAGE_URL,
   bannerPosition: 'center',
   bannerOffsetX: 0,
   bannerOffsetY: 0,

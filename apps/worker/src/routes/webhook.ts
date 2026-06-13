@@ -32,8 +32,8 @@ import {
   DEMO_SERVICE_NAME,
   DEMO_TIMEREX_URL,
   DEMO_WORKER_URL,
+  SAIYO_PRO_APPLICATION_COMPLETE_IMAGE_URL,
   SAIYO_PRO_APPLICATION_START_IMAGE_URL,
-  SAIYO_PRO_OFFICE_IMAGE_URL,
   resolveSaiyoProDemoCandidateByLineUserId,
   type DemoCandidate,
   type DemoCandidateStatus,
@@ -1328,9 +1328,9 @@ function buildSaiyoProApplicationResultFlex(): string {
     size: 'mega',
     hero: {
       type: 'image',
-      url: SAIYO_PRO_OFFICE_IMAGE_URL,
+      url: SAIYO_PRO_APPLICATION_COMPLETE_IMAGE_URL,
       size: 'full',
-      aspectRatio: '20:13',
+      aspectRatio: '3:2',
       aspectMode: 'cover',
     },
     body: {
@@ -2768,4 +2768,4 @@ function extractDemoUrls(body: string): string[] {
   return urls;
 }
 
-export { webhook, buildDemoApplicationStartFlex, buildDemoApplicationQuestionFlex, buildDemoCandidateJobsLinkFlex, buildDemoCandidateListFlex, buildDemoCandidateSelfMenuFlex, buildDemoCandidateCompanyCardsFlex, buildDemoCompanyAccountFromProfile, buildDemoCompanyMenuReply, buildDemoWelcomeText };
+export { webhook, buildDemoApplicationStartFlex, buildDemoApplicationQuestionFlex, buildSaiyoProApplicationResultFlex, buildDemoCandidateJobsLinkFlex, buildDemoCandidateListFlex, buildDemoCandidateSelfMenuFlex, buildDemoCandidateCompanyCardsFlex, buildDemoCompanyAccountFromProfile, buildDemoCompanyMenuReply, buildDemoWelcomeText };
