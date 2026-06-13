@@ -6,6 +6,8 @@ import { promisify } from 'node:util';
 const execFileAsync = promisify(execFile);
 
 const OUT_DIR = 'tmp/demo-rich-menus';
+const UPLOAD_IMAGE_EXT = 'jpg';
+const UPLOAD_IMAGE_CONTENT_TYPE = 'image/jpeg';
 const WIDTH = 2500;
 const HEIGHT = 1686;
 const COLS = 2;
@@ -140,15 +142,15 @@ async function main() {
   for (const spec of specs) {
     const token = accounts.get(spec.accountId);
     if (!token) throw new Error(`line_accounts に ${spec.accountId} の channel_access_token がありません`);
-    const pngPath = join(OUT_DIR, `${spec.fileBase}.png`);
-    await renderRichMenuImage(spec, pngPath);
+    const imagePath = join(OUT_DIR, `${spec.fileBase}.${UPLOAD_IMAGE_EXT}`);
+    await renderRichMenuImage(spec, imagePath);
 
     const created = await lineJson<{ richMenuId: string }>(token, '/v2/bot/richmenu', {
       method: 'POST',
       body: JSON.stringify(buildRichMenuPayload(spec)),
     });
 
-    const image = await readFile(pngPath);
+    const image = await readFile(imagePath);
     await lineImage(token, created.richMenuId, image);
     await lineJson<undefined>(token, `/v2/bot/user/all/richmenu/${encodeURIComponent(created.richMenuId)}`, { method: 'POST' });
 
@@ -174,7 +176,7 @@ export function buildRichMenuPayload(spec: DemoRichMenuSpec) {
   };
 }
 
-async function renderRichMenuImage(spec: DemoRichMenuSpec, pngPath: string): Promise<void> {
+async function renderRichMenuImage(spec: DemoRichMenuSpec, outputPath: string): Promise<void> {
   await execFileAsync('magick', [
     spec.imagePath,
     '-resize',
@@ -183,7 +185,12 @@ async function renderRichMenuImage(spec: DemoRichMenuSpec, pngPath: string): Pro
     'center',
     '-extent',
     `${WIDTH}x${HEIGHT}`,
-    pngPath,
+    '-strip',
+    '-interlace',
+    'Plane',
+    '-quality',
+    '82',
+    outputPath,
   ]);
 }
 
@@ -207,7 +214,7 @@ async function lineImage(token: string, richMenuId: string, image: Buffer): Prom
   const res = await fetch(`${LINE_API_DATA_BASE}/v2/bot/richmenu/${encodeURIComponent(richMenuId)}/content`, {
     method: 'POST',
     headers: {
-      'Content-Type': 'image/png',
+      'Content-Type': UPLOAD_IMAGE_CONTENT_TYPE,
       Authorization: `Bearer ${token}`,
     },
     body: image,
