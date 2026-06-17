@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { verifySignature, LineClient } from '@line-crm/line-sdk';
 import type { WebhookRequestBody, WebhookEvent, TextEventMessage } from '@line-crm/line-sdk';
+import { createStickerMessageContent } from '@line-crm/shared';
 import {
   upsertFriend,
   updateFriendFollowStatus,
@@ -642,7 +643,18 @@ async function handleEvent(
     const friend = await ensureFriendForLineUser(db, lineClient, userId, lineAccountId);
     if (!friend) return;
 
-    const msg = event.message as { id: string; type: string; fileName?: string; title?: string };
+    const msg = event.message as {
+      id: string;
+      type: string;
+      fileName?: string;
+      title?: string;
+      packageId?: string | number;
+      package_id?: string | number;
+      stickerId?: string | number;
+      sticker_id?: string | number;
+      stickerResourceType?: string | number;
+      sticker_resource_type?: string | number;
+    };
     const labels: Record<string, string> = {
       sticker: '[スタンプ]',
       image: '[画像]',
@@ -656,6 +668,12 @@ async function handleEvent(
     // image の場合は LINE Content API でバイナリを取得 → R2 → JSON URL に置換。
     // 失敗時は labels[msg.type] のラベル文字列のまま (フォールバック)。
     let finalContent = content;
+    if (msg.type === 'sticker') {
+      const stickerContent = createStickerMessageContent(msg);
+      if (stickerContent) {
+        finalContent = JSON.stringify(stickerContent);
+      }
+    }
     if (msg.type === 'image' && r2 && workerUrl) {
       const lineMessageId = msg.id;
       const { fetchAndStoreIncomingImage } = await import('../services/incoming-image.js');

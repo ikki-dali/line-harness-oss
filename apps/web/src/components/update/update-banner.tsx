@@ -16,10 +16,14 @@ type Status =
   | { kind: 'fork'; reason: string; version: string }
   | { kind: 'upgrade'; current: string; target: ReleaseEntry }
 
+const updateBannerEnabled = process.env.NEXT_PUBLIC_UPDATE_BANNER_ENABLED !== 'false'
+
 export function UpdateBanner() {
   const [status, setStatus] = useState<Status>({ kind: 'loading' })
 
   useEffect(() => {
+    if (!updateBannerEnabled) return
+
     let cancelled = false
     ;(async () => {
       try {
@@ -49,7 +53,7 @@ export function UpdateBanner() {
         }
       } catch (e) {
         // Banner is best-effort: do not break the dashboard if /admin/version
-        // or the GitHub-hosted manifest is unreachable. Phase 9 will add a
+        // or the Worker-hosted manifest proxy is unreachable. Phase 9 will add a
         // visible error chip; for Phase 6 we just stay in `loading` (null).
         console.error('update banner failed', e)
       }
