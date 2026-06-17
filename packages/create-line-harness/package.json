@@ -11,6 +11,7 @@
   ],
   "scripts": {
     "build": "tsup",
+    "test": "vitest run --config vitest.config.ts",
     "dev": "tsup --watch",
     "prepublishOnly": "node ./scripts/guard-source-publish.mjs"
   },

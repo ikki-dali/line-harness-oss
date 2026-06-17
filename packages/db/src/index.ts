@@ -29,6 +29,8 @@ export * from './traffic-pools';
 export * from './message-templates';
 export * from './rich-menus';
 export * from './timerex';
+export * from './saiyo-pro-jobs';
+export * from './product-integrations';
 
 /**
  * Thin wrapper around D1Database.

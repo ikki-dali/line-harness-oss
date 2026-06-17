@@ -40,6 +40,24 @@ describe('notFoundHandler — root / request', () => {
     expect(res.headers.get('location')).toBe('/demo-chat');
   });
 
+  it('serves the saiyo-pro harness root from static assets instead of demo-chat', async () => {
+    const assets: Fetcher = {
+      fetch: vi.fn().mockResolvedValue(new Response('saiyo-pro-liff', { status: 200 })),
+    } as unknown as Fetcher;
+    const res = await worker.fetch(
+      new Request('https://worker.example.com/'),
+      {
+        DB: {} as D1Database,
+        ASSETS: assets,
+        WORKER_NAME: 'saiyo-pro-harness',
+      } as Env['Bindings'],
+      { waitUntil: vi.fn(), passThroughOnException: vi.fn(), props: {} } as unknown as ExecutionContext,
+    );
+    expect(res.status).toBe(200);
+    expect(await res.text()).toBe('saiyo-pro-liff');
+    expect(assets.fetch).toHaveBeenCalledOnce();
+  });
+
   it('returns 404 JSON when ASSETS binding is undefined (no TypeError)', async () => {
     const fetchApp = makeApp({ DB: {} as D1Database });
     const res = await fetchApp('/');

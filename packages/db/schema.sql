@@ -6,7 +6,8 @@
 -- ============================================================
 CREATE TABLE IF NOT EXISTS friends (
   id               TEXT PRIMARY KEY,
-  line_user_id     TEXT UNIQUE NOT NULL,
+  line_user_id     TEXT NOT NULL,
+  line_account_id  TEXT REFERENCES line_accounts(id),
   display_name     TEXT,
   picture_url      TEXT,
   status_message   TEXT,
@@ -19,6 +20,13 @@ CREATE TABLE IF NOT EXISTS friends (
 );
 
 CREATE INDEX IF NOT EXISTS idx_friends_line_user_id ON friends (line_user_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_friends_line_user_account
+  ON friends (line_user_id, line_account_id)
+  WHERE line_account_id IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_friends_line_user_null_account
+  ON friends (line_user_id)
+  WHERE line_account_id IS NULL;
+CREATE INDEX IF NOT EXISTS idx_friends_line_account_id ON friends (line_account_id);
 CREATE INDEX IF NOT EXISTS idx_friends_user_id ON friends (user_id);
 CREATE INDEX IF NOT EXISTS idx_friends_ig_igsid ON friends (ig_igsid);
 
@@ -836,3 +844,107 @@ CREATE TABLE IF NOT EXISTS rich_menu_areas (
 CREATE INDEX IF NOT EXISTS idx_rich_menu_pages_group    ON rich_menu_pages(group_id, order_index);
 CREATE INDEX IF NOT EXISTS idx_rich_menu_areas_page     ON rich_menu_areas(page_id);
 CREATE INDEX IF NOT EXISTS idx_rich_menu_groups_account ON rich_menu_groups(account_id, status);
+
+-- ============================================================
+-- Saiyo Pro Company Jobs
+-- ============================================================
+CREATE TABLE IF NOT EXISTS saiyo_pro_company_jobs (
+  id                 TEXT PRIMARY KEY,
+  line_account_id    TEXT NOT NULL,
+  company_friend_id  TEXT NOT NULL,
+  company_name       TEXT NOT NULL,
+  title              TEXT NOT NULL,
+  employment_type    TEXT,
+  wage_label         TEXT,
+  work_location      TEXT,
+  work_hours         TEXT,
+  description        TEXT,
+  requirements       TEXT,
+  banner_url         TEXT,
+  status             TEXT NOT NULL DEFAULT 'draft'
+    CHECK (status IN ('draft','published','closed')),
+  published_at       TEXT,
+  created_at         TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', '+9 hours')),
+  updated_at         TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', '+9 hours')),
+  FOREIGN KEY (line_account_id) REFERENCES line_accounts(id),
+  FOREIGN KEY (company_friend_id) REFERENCES friends(id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_saiyo_pro_company_jobs_account_status
+  ON saiyo_pro_company_jobs (line_account_id, status, updated_at);
+
+CREATE INDEX IF NOT EXISTS idx_saiyo_pro_company_jobs_company_friend
+  ON saiyo_pro_company_jobs (company_friend_id, updated_at);
+
+CREATE TABLE IF NOT EXISTS saiyo_pro_job_applications (
+  id                         TEXT PRIMARY KEY,
+  job_id                     TEXT NOT NULL,
+  candidate_friend_id        TEXT NOT NULL,
+  candidate_line_account_id  TEXT,
+  company_friend_id          TEXT NOT NULL,
+  status                     TEXT NOT NULL DEFAULT 'applied'
+    CHECK (status IN ('applied','screening','interview','hired','rejected','withdrawn')),
+  message                    TEXT,
+  created_at                 TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', '+9 hours')),
+  updated_at                 TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', '+9 hours')),
+  FOREIGN KEY (job_id) REFERENCES saiyo_pro_company_jobs(id) ON DELETE CASCADE,
+  FOREIGN KEY (candidate_friend_id) REFERENCES friends(id),
+  FOREIGN KEY (candidate_line_account_id) REFERENCES line_accounts(id),
+  FOREIGN KEY (company_friend_id) REFERENCES friends(id),
+  UNIQUE (job_id, candidate_friend_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_saiyo_pro_job_applications_candidate
+  ON saiyo_pro_job_applications (candidate_friend_id, created_at);
+
+CREATE INDEX IF NOT EXISTS idx_saiyo_pro_job_applications_company_friend
+  ON saiyo_pro_job_applications (company_friend_id, status, created_at);
+
+-- ============================================================
+-- Product Integrations
+-- ============================================================
+CREATE TABLE IF NOT EXISTS product_integrations (
+  id              TEXT PRIMARY KEY,
+  product_code    TEXT NOT NULL,
+  name            TEXT NOT NULL,
+  line_account_id TEXT NOT NULL,
+  webhook_url     TEXT,
+  webhook_secret  TEXT,
+  is_active       INTEGER NOT NULL DEFAULT 1,
+  metadata        TEXT NOT NULL DEFAULT '{}',
+  created_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', '+9 hours')),
+  updated_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', '+9 hours')),
+  FOREIGN KEY (line_account_id) REFERENCES line_accounts(id) ON DELETE CASCADE,
+  UNIQUE (product_code, line_account_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_product_integrations_account_active
+  ON product_integrations (line_account_id, is_active);
+
+CREATE INDEX IF NOT EXISTS idx_product_integrations_product_active
+  ON product_integrations (product_code, is_active);
+
+CREATE TABLE IF NOT EXISTS product_event_deliveries (
+  id                     TEXT PRIMARY KEY,
+  product_integration_id TEXT NOT NULL,
+  event_type             TEXT NOT NULL,
+  source_table           TEXT,
+  source_id              TEXT,
+  delivery_id            TEXT NOT NULL,
+  payload                TEXT NOT NULL,
+  status                 TEXT NOT NULL DEFAULT 'pending'
+    CHECK (status IN ('pending','delivered','failed','skipped')),
+  attempts               INTEGER NOT NULL DEFAULT 0,
+  last_error             TEXT,
+  delivered_at           TEXT,
+  created_at             TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', '+9 hours')),
+  updated_at             TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', '+9 hours')),
+  FOREIGN KEY (product_integration_id) REFERENCES product_integrations(id) ON DELETE CASCADE,
+  UNIQUE (product_integration_id, delivery_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_product_event_deliveries_integration_status
+  ON product_event_deliveries (product_integration_id, status, created_at);
+
+CREATE INDEX IF NOT EXISTS idx_product_event_deliveries_source
+  ON product_event_deliveries (source_table, source_id);

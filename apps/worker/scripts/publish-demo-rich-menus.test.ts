@@ -13,13 +13,18 @@ describe('demo rich menu payloads', () => {
 
     expect(companySpec.name).toBe('採用PRO 企業向け 4ボタン');
     expect(companySpec.imagePath).toBe('assets/rich-menus/saiyo-pro/company.png');
-    expect(actions[0]).toEqual({ type: 'postback', label: '新着応募者', data: 'demo:company-menu:matches' });
-    expect(actions[1]).toEqual({ type: 'postback', label: '未対応チャット', data: 'demo:company-menu:unread' });
-    expect(actions[2]).toEqual({ type: 'uri', label: '求人管理', uri: 'https://saiyo-pro-harness.ikki-y.workers.dev/demo-company-jobs' });
-    expect(actions[3]).toEqual({ type: 'uri', label: 'アカウント設定', uri: 'https://saiyo-pro-harness.ikki-y.workers.dev/demo-company-settings' });
+    expect(payload.size).toEqual({ width: 2500, height: 1250 });
+    expect(payload.areas[0]?.bounds).toEqual({ x: 0, y: 0, width: 1250, height: 625 });
+    expect(payload.areas[3]?.bounds).toEqual({ x: 1250, y: 625, width: 1250, height: 625 });
+    expect(actions[0]).toEqual({ type: 'message', label: '新着応募者', text: '新着応募者' });
+    expect(actions[1]).toEqual({ type: 'message', label: '未対応チャット', text: '未対応チャット' });
+    expect(actions[2]).toEqual({ type: 'message', label: '求人管理', text: '求人管理' });
+    expect(actions[3]).toEqual({ type: 'message', label: 'アカウント設定', text: 'アカウント設定' });
     expect(JSON.stringify(companySpec)).toContain('求人管理');
     expect(JSON.stringify(companySpec)).toContain('アカウント設定');
     expect(JSON.stringify(companySpec)).not.toContain('採用実績');
+    expect(JSON.stringify(actions)).not.toContain('demo:company-menu');
+    expect(JSON.stringify(actions)).not.toContain('/demo-company');
     expect(subtitles).toEqual(['登録者を確認', '返信が必要なチャット', '求人を出稿', '情報と各種設定']);
   });
 
@@ -32,10 +37,15 @@ describe('demo rich menu payloads', () => {
 
     expect(candidateSpec.name).toBe('採用PRO 求職者向け 4ボタン');
     expect(candidateSpec.imagePath).toBe('assets/rich-menus/saiyo-pro/candidate.png');
-    expect(actions[0]).toEqual({ type: 'postback', label: '求人を見る', data: 'demo:candidate-menu:jobs-card' });
-    expect(actions[1]).toEqual({ type: 'uri', label: 'チャット', uri: 'https://saiyo-pro-harness.ikki-y.workers.dev/demo-candidate-chat?candidate=yamada' });
-    expect(actions[2]).toEqual({ type: 'uri', label: 'プロフィール', uri: 'https://saiyo-pro-harness.ikki-y.workers.dev/demo-candidate-chat?candidate=yamada&profile=1' });
-    expect(actions[3]).toEqual({ type: 'postback', label: '応募状況', data: 'demo:candidate-menu:status' });
+    expect(payload.size).toEqual({ width: 2500, height: 988 });
+    expect(payload.areas[0]?.bounds).toEqual({ x: 0, y: 0, width: 1250, height: 494 });
+    expect(payload.areas[3]?.bounds).toEqual({ x: 1250, y: 494, width: 1250, height: 494 });
+    expect(actions[0]).toEqual({ type: 'message', label: '求人を見る', text: '求人案内の確認を始める' });
+    expect(actions[1]).toEqual({ type: 'message', label: 'チャット', text: 'チャット' });
+    expect(actions[2]).toEqual({ type: 'message', label: 'プロフィール', text: 'プロフィール' });
+    expect(actions[3]).toEqual({ type: 'message', label: '応募状況', text: '応募状況' });
+    expect(JSON.stringify(actions)).not.toContain('demo:candidate-menu');
+    expect(JSON.stringify(actions)).not.toContain('/demo-candidate-chat');
   });
 
   test('groups existing friend user IDs by line account for user-specific rich menu unlinking', () => {

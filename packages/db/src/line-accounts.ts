@@ -98,6 +98,16 @@ export async function getLineAccountByChannelId(
     .first<LineAccount>();
 }
 
+export async function getLineAccountByLiffId(
+  db: D1Database,
+  liffId: string,
+): Promise<LineAccount | null> {
+  return db
+    .prepare(`SELECT * FROM line_accounts WHERE liff_id = ?`)
+    .bind(liffId)
+    .first<LineAccount>();
+}
+
 export type UpdateLineAccountInput = Partial<
   Pick<
     LineAccount,

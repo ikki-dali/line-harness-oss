@@ -17,6 +17,7 @@
 
 import { initBooking } from './booking.js';
 import { initForm } from './form.js';
+import { getEffectiveSearchParams } from './url-params.js';
 
 declare const liff: {
   init(config: { liffId: string }): Promise<void>;
@@ -32,7 +33,7 @@ declare const liff: {
 
 // Resolve LIFF ID: ?liffId= param (from endpoint URL) > env var (fallback to ①)
 function detectLiffId(): string {
-  const fromParam = new URLSearchParams(window.location.search).get('liffId');
+  const fromParam = getEffectiveSearchParams().get('liffId');
   if (fromParam) return fromParam;
   return import.meta.env?.VITE_LIFF_ID || '';
 }
@@ -57,17 +58,17 @@ function apiCall(path: string, options?: RequestInit): Promise<Response> {
 function getPage(): string | null {
   const path = window.location.pathname.replace(/^\/+/, '');
   if (path === 'book') return 'book';
-  const params = new URLSearchParams(window.location.search);
+  const params = getEffectiveSearchParams();
   return params.get('page');
 }
 
 function getRedirectUrl(): string | null {
-  const params = new URLSearchParams(window.location.search);
+  const params = getEffectiveSearchParams();
   return params.get('redirect');
 }
 
 function getRef(): string | null {
-  const params = new URLSearchParams(window.location.search);
+  const params = getEffectiveSearchParams();
   return params.get('ref');
 }
 
@@ -126,26 +127,18 @@ function showFriendAdd(profile: { displayName: string; pictureUrl?: string }) {
       if (!friendFlag) return;
 
       // Send form link if form param exists (was lost during friend-add flow)
-      const formParam = new URLSearchParams(window.location.search).get('form');
+      const formParam = getEffectiveSearchParams().get('form');
       if (formParam && !formLinkSent) {
         formLinkSent = true;
         try {
           const fp = await liff.getProfile();
           const idToken = liff.getIDToken();
-          const params = new URLSearchParams(window.location.search);
-          await apiCall('/api/liff/send-form-link', {
-            method: 'POST',
-            body: JSON.stringify({
-              lineUserId: fp.userId,
-              formId: formParam,
-              idToken: idToken || '',
-              ref: params.get('ref') || '',
-              gate: params.get('gate') || '',
-              xh: params.get('xh') || '',
-              ig: params.get('ig') || '',
-            }),
-          });
-        } catch { /* best-effort */ }
+          await sendFormLink(fp.userId, formParam, idToken);
+        } catch (err) {
+          formLinkSent = false;
+          showError(err instanceof Error ? err.message : 'フォーム案内メッセージの送信に失敗しました');
+          return;
+        }
       }
       document.removeEventListener('visibilitychange', onVisibilityChange);
       showCompletion(profile, false);
@@ -196,6 +189,27 @@ function showError(message: string) {
   `;
 }
 
+async function sendFormLink(lineUserId: string, formId: string, idToken: string | null): Promise<void> {
+  const params = getEffectiveSearchParams();
+  const res = await apiCall('/api/liff/send-form-link', {
+    method: 'POST',
+    body: JSON.stringify({
+      lineUserId,
+      formId,
+      idToken: idToken || '',
+      ref: params.get('ref') || '',
+      gate: params.get('gate') || '',
+      xh: params.get('xh') || '',
+      ig: params.get('ig') || '',
+    }),
+  });
+
+  if (!res.ok) {
+    const json = await res.json().catch(() => null) as { error?: string } | null;
+    throw new Error(json?.error || 'フォーム案内メッセージの送信に失敗しました');
+  }
+}
+
 // ─── Core Flow ──────────────────────────────────────────
 
 async function linkAndAddFlow() {
@@ -213,7 +227,7 @@ async function linkAndAddFlow() {
     ]);
 
     // 1. UUID linking (always, regardless of friendship)
-    const linkParams = new URLSearchParams(window.location.search);
+    const linkParams = getEffectiveSearchParams();
     const linkPromise = apiCall('/api/liff/link', {
       method: 'POST',
       body: JSON.stringify({
@@ -268,25 +282,16 @@ async function linkAndAddFlow() {
       showFriendAdd(profile);
     } else {
       // Already a friend — check for form param
-      const formParam = new URLSearchParams(window.location.search).get('form');
+      const formParam = getEffectiveSearchParams().get('form');
       if (formParam) {
         // Send form link via push message, then show completion
         try {
           const idToken = liff.getIDToken();
-          const params = new URLSearchParams(window.location.search);
-          await apiCall('/api/liff/send-form-link', {
-            method: 'POST',
-            body: JSON.stringify({
-              lineUserId: profile.userId,
-              formId: formParam,
-              idToken: idToken || '',
-              ref: ref || '',
-              gate: params.get('gate') || '',
-              xh: params.get('xh') || '',
-              ig: params.get('ig') || '',
-            }),
-          });
-        } catch { /* best-effort */ }
+          await sendFormLink(profile.userId, formParam, idToken);
+        } catch (err) {
+          showError(err instanceof Error ? err.message : 'フォーム案内メッセージの送信に失敗しました');
+          return;
+        }
         showCompletion(profile, !!existingUuid);
       } else {
         showCompletion(profile, !!existingUuid);
@@ -325,7 +330,7 @@ async function initSalonBooking(): Promise<void> {
 
   const existingUuid = getSavedUuid();
   const ref = getRef();
-  const ig = new URLSearchParams(window.location.search).get('ig');
+  const ig = getEffectiveSearchParams().get('ig');
 
   // ② Silent UUID linking (fire-and-forget; booking API は id_token verify で
   //    認証するので待つ必要はない)。
@@ -429,7 +434,7 @@ async function initEventBooking(initialKind: 'detail' | 'history'): Promise<void
     showError('mount target #app が見つかりません');
     return;
   }
-  const params = new URLSearchParams(window.location.search);
+  const params = getEffectiveSearchParams();
   const eventId = params.get('id') ?? '';
   if (initialKind === 'detail' && !eventId) {
     showError('id クエリパラメータが必要です（?page=event&id=<eventId>）');
@@ -475,7 +480,7 @@ async function main() {
     } else if (page === 'event-me') {
       await initEventBooking('history');
     } else if (page === 'form') {
-      const params = new URLSearchParams(window.location.search);
+      const params = getEffectiveSearchParams();
       const formId = params.get('id');
       await initForm(formId);
     } else if (!page) {

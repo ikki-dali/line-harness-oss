@@ -18,6 +18,7 @@ vi.mock('@line-crm/db', () => ({
   completeFriendScenario: vi.fn(),
   upsertChatOnMessage: vi.fn(),
   getLineAccounts: vi.fn().mockResolvedValue([]),
+  getFriendById: vi.fn(),
   jstNow: vi.fn(),
   computeNextDeliveryAt: vi.fn(),
   resolveStepContent: vi.fn(),
@@ -52,9 +53,10 @@ vi.mock('../services/step-delivery.js', () => ({
   })),
 }));
 
-import { getFriendByLineUserId, getLineAccounts, jstNow, upsertFriend } from '@line-crm/db';
+import { getEntryRouteByRefCode, getFriendById, getFriendByLineUserId, getLineAccounts, getScenarios, jstNow, upsertFriend } from '@line-crm/db';
 import { verifySignature } from '@line-crm/line-sdk';
-import { buildDemoApplicationStartFlex, buildDemoApplicationQuestionFlex, buildDemoCandidateJobsLinkFlex, buildDemoCandidateListFlex, buildDemoCandidateSelfMenuFlex, buildDemoCandidateCompanyCardsFlex, buildDemoCompanyAccountFromProfile, buildDemoCompanyMenuReply, buildDemoWelcomeText, buildSaiyoProApplicationResultFlex, webhook } from './webhook.js';
+import type { LineClient } from '@line-crm/line-sdk';
+import { buildDemoApplicationStartFlex, buildDemoApplicationQuestionFlex, buildDemoCandidateJobsLinkFlex, buildDemoCandidateListFlex, buildDemoCandidateSelfMenuFlex, buildDemoCandidateCompanyCardsFlex, buildDemoCompanyAccountFromProfile, buildDemoCompanyMenuReply, buildDemoWelcomeText, buildFiveIntakeQuestionFlex, buildFiveResumeCreationFlex, buildFiveResumeSubmissionFlex, buildSaiyoProApplicationResultFlex, buildSaiyoProCandidateMenuText, buildSaiyoProCompanyMenuText, canAcceptFiveCandidateIntakeAnswer, handleSaiyoProApplicationPostback, mergeFiveCandidateIntakeAnswer, webhook } from './webhook.js';
 
 function setupApp() {
   const app = new Hono();
@@ -267,6 +269,100 @@ describe('POST /webhook — Saiyo Pro candidate chat routing', () => {
 });
 
 describe('Saiyo Pro candidate application questionnaire', () => {
+  test('FIVE follow without a referral route still sends the intake greeting', async () => {
+    vi.mocked(verifySignature).mockResolvedValue(true);
+    vi.mocked(getLineAccounts).mockResolvedValue([
+      {
+        id: 'five-rpo',
+        channel_id: '2010372194',
+        name: 'FIVE公式LINE',
+        channel_secret: 'five-secret',
+        channel_access_token: 'five-token',
+        liff_id: '2010373013-o7pRF1um',
+        is_active: true,
+        display_order: 1,
+        created_at: '2026-06-17T12:00:00+09:00',
+        updated_at: '2026-06-17T12:00:00+09:00',
+      },
+    ]);
+    vi.mocked(upsertFriend).mockResolvedValue({
+      id: 'friend-five-1',
+      line_user_id: 'five-line-user-id',
+      display_name: '応募者',
+      picture_url: null,
+      status_message: null,
+      is_following: 1,
+      metadata: null,
+      user_id: null,
+      line_account_id: 'five-rpo',
+      ref_code: null,
+      created_at: '2026-06-17T12:00:00+09:00',
+      updated_at: '2026-06-17T12:00:00+09:00',
+    });
+    vi.mocked(getFriendById).mockResolvedValue({
+      id: 'friend-five-1',
+      line_user_id: 'five-line-user-id',
+      display_name: '応募者',
+      picture_url: null,
+      status_message: null,
+      is_following: 1,
+      metadata: null,
+      user_id: null,
+      line_account_id: 'five-rpo',
+      ref_code: null,
+      created_at: '2026-06-17T12:00:00+09:00',
+      updated_at: '2026-06-17T12:00:00+09:00',
+    });
+    vi.mocked(getEntryRouteByRefCode).mockResolvedValue(null);
+    vi.mocked(getScenarios).mockResolvedValue([]);
+    const db = {
+      prepare() {
+        return {
+          bind() {
+            return {
+              first: async () => null,
+              all: async () => ({ results: [] }),
+              run: async () => ({ success: true }),
+            };
+          },
+          first: async () => null,
+          all: async () => ({ results: [] }),
+          run: async () => ({ success: true }),
+        };
+      },
+      batch: async () => [],
+    } as unknown as D1Database;
+    const waitUntil = vi.fn();
+    const app = setupApp();
+    const body = JSON.stringify({
+      events: [
+        {
+          type: 'follow',
+          replyToken: 'reply-token',
+          source: { type: 'user', userId: 'five-line-user-id' },
+        },
+      ],
+    });
+
+    const res = await app.request(
+      '/webhook',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Line-Signature': 'A'.repeat(43) + '=' },
+        body,
+      },
+      { ...baseEnv, DB: db, LINE_CHANNEL_SECRET: 'five-secret', LINE_CHANNEL_ACCESS_TOKEN: 'five-token' },
+      { ...baseExecutionCtx, waitUntil } as unknown as ExecutionContext,
+    );
+    await waitUntil.mock.calls[0]?.[0];
+
+    expect(res.status).toBe(200);
+    expect(lineReplyMessageMock).toHaveBeenCalledWith('reply-token', [
+      expect.objectContaining({ type: 'flex', text: expect.stringContaining('ご登録ありがとうございます') }),
+    ]);
+    expect(linePushMessageMock).not.toHaveBeenCalled();
+  });
+
   test('candidate follow sends the greeting text and application start banner', async () => {
     vi.mocked(verifySignature).mockResolvedValue(true);
     vi.mocked(getLineAccounts).mockResolvedValue([
@@ -342,8 +438,8 @@ describe('Saiyo Pro candidate application questionnaire', () => {
   test('start flex is a greeting banner with a questionnaire CTA', () => {
     const flex = JSON.parse(buildDemoApplicationStartFlex()) as {
       type: string;
-      hero: { type: string; url: string; aspectRatio: string; aspectMode: string };
-      footer: { contents: Array<{ action: { type: string; label: string; text: string } }> };
+      hero: { type: string; url: string; aspectRatio: string; aspectMode: string; action: { type: string; label: string; text: string } };
+      footer?: unknown;
     };
 
     expect(flex.type).toBe('bubble');
@@ -358,7 +454,8 @@ describe('Saiyo Pro candidate application questionnaire', () => {
     expect(JSON.stringify(flex)).not.toContain('#2563EB');
     expect(JSON.stringify(flex)).not.toContain('#EFF6FF');
     expect(JSON.stringify(flex)).toContain('採用PRO 求人案内');
-    expect(flex.footer.contents[0]?.action).toEqual({
+    expect(flex.footer).toBeUndefined();
+    expect(flex.hero.action).toEqual({
       type: 'message',
       label: '求人案内の確認を始める',
       text: '求人案内の確認を始める',
@@ -374,29 +471,115 @@ describe('Saiyo Pro candidate application questionnaire', () => {
 
     expect(flex.type).toBe('bubble');
     expect(JSON.stringify(flex)).toContain('年齢');
-    expect(flex.footer.contents[0]?.action).toEqual({ type: 'postback', label: '22〜24歳', data: 'demo:application:age:age_22_24' });
-    expect(flex.footer.contents[1]?.action).toEqual({ type: 'postback', label: '25〜27歳', data: 'demo:application:age:age_25_27' });
-    expect(flex.footer.contents[2]?.action).toEqual({ type: 'postback', label: '28〜30歳', data: 'demo:application:age:age_28_30' });
-    expect(flex.footer.contents[3]?.action).toEqual({ type: 'postback', label: '31歳以上', data: 'demo:application:age:age_31_plus' });
+    expect(flex.footer.contents[0]?.action).toEqual({ type: 'postback', label: '22〜24歳', data: 'demo:application:age:age_22_24', displayText: '22〜24歳' });
+    expect(flex.footer.contents[1]?.action).toEqual({ type: 'postback', label: '25〜27歳', data: 'demo:application:age:age_25_27', displayText: '25〜27歳' });
+    expect(flex.footer.contents[2]?.action).toEqual({ type: 'postback', label: '28〜30歳', data: 'demo:application:age:age_28_30', displayText: '28〜30歳' });
+    expect(flex.footer.contents[3]?.action).toEqual({ type: 'postback', label: '31歳以上', data: 'demo:application:age:age_31_plus', displayText: '31歳以上' });
+    expect(flex.footer.contents[0]?.action.displayText).toBe('22〜24歳');
   });
 
-  test('application result flex uses the completion banner', () => {
-    const flex = JSON.parse(buildSaiyoProApplicationResultFlex()) as {
-      type: string;
-      hero: { type: string; url: string; aspectRatio: string; aspectMode: string };
+  test('FIVE resume submission flex uses a single submission link', () => {
+    const flex = JSON.parse(buildFiveResumeSubmissionFlex('https://liff.line.me/2010373013-o7pRF1um?page=form&id=form-saiyo-pro-candidate-intake&resume_status=%E6%8F%90%E5%87%BA%E3%81%A7%E3%81%8D%E3%82%8B')) as {
+      footer: { contents: Array<{ action: { type: string; label: string; uri?: string; text?: string } }> };
+    };
+    const serialized = JSON.stringify(flex);
+
+    expect(serialized).toContain('職務経歴書の提出');
+    expect(serialized).toContain('こちらのリンクから');
+    expect(flex.footer.contents).toHaveLength(1);
+    expect(flex.footer.contents[0]?.action).toMatchObject({ type: 'uri', label: '職務経歴書を提出する' });
+    expect(flex.footer.contents[0]?.action.uri).toContain('resume_status=');
+    expect(serialized).not.toContain('チャットに送ります');
+    expect(serialized).not.toContain('採用PRO');
+    expect(serialized).not.toContain('採用プロ');
+    expect(serialized).not.toContain('特典');
+  });
+
+  test('FIVE intake asks selectable questions before resume creation', () => {
+    const ageFlex = JSON.parse(buildFiveIntakeQuestionFlex('age')) as {
+      footer: { contents: Array<{ action: { data: string; label: string } }> };
+    };
+    const employmentFlex = JSON.parse(buildFiveIntakeQuestionFlex('employment')) as {
+      footer: { contents: Array<{ action: { data: string; label: string } }> };
+    };
+    const timingFlex = JSON.parse(buildFiveIntakeQuestionFlex('timing')) as {
+      footer: { contents: Array<{ action: { data: string; label: string } }> };
+    };
+    const resumeFlex = JSON.parse(buildFiveIntakeQuestionFlex('resume')) as {
+      footer: { contents: Array<{ action: { data: string; label: string } }> };
     };
 
-    expect(flex.type).toBe('bubble');
-    expect(flex.hero).toMatchObject({
-      type: 'image',
-      aspectRatio: '3:2',
-      aspectMode: 'cover',
+    expect(JSON.stringify(ageFlex)).toContain('年齢を教えてください');
+    expect(JSON.stringify(ageFlex)).toContain('ご応募ありがとうございます');
+    expect(ageFlex.footer.contents[0]?.action.data).toBe('five:intake:age:18_24');
+    expect(employmentFlex.footer.contents[0]?.action.data).toBe('five:intake:employment:full_time');
+    expect(timingFlex.footer.contents[0]?.action.data).toBe('five:intake:timing:soon');
+    expect(JSON.stringify(resumeFlex)).toContain('職務経歴書を作成しますか？');
+    expect(JSON.stringify(resumeFlex)).toContain('職務経歴書を作成したい');
+    expect(JSON.stringify(resumeFlex)).not.toContain('持っていないので作成する');
+    expect(resumeFlex.footer.contents[0]?.action.data).toBe('five:intake:resume:has');
+    expect(resumeFlex.footer.contents[1]?.action.data).toBe('five:intake:resume:create');
+  });
+
+  test('FIVE intake accepts corrections for already answered cards and truncates following answers', () => {
+    const completedAnswers = {
+      age: '25_34',
+      employment: 'full_time',
+      timing: 'soon',
+      resume: 'create',
+    };
+
+    expect(canAcceptFiveCandidateIntakeAnswer(completedAnswers, 'resume')).toBe(true);
+    expect(mergeFiveCandidateIntakeAnswer(completedAnswers, 'resume', 'has')).toEqual({
+      age: '25_34',
+      employment: 'full_time',
+      timing: 'soon',
+      resume: 'has',
     });
-    expect(flex.hero.url).toContain('/images/saiyo-pro/application-complete-20260613.png');
-    expect(JSON.stringify(flex)).toContain('#00B8C8');
-    expect(JSON.stringify(flex)).toContain('#EAFBF8');
-    expect(JSON.stringify(flex)).not.toContain('#2563EB');
-    expect(JSON.stringify(flex)).not.toContain('#EFF6FF');
+    expect(canAcceptFiveCandidateIntakeAnswer(completedAnswers, 'employment')).toBe(true);
+    expect(mergeFiveCandidateIntakeAnswer(completedAnswers, 'employment', 'contract')).toEqual({
+      age: '25_34',
+      employment: 'contract',
+    });
+    expect(canAcceptFiveCandidateIntakeAnswer({ age: '25_34' }, 'resume')).toBe(false);
+  });
+
+  test('FIVE resume creation flex moves only written input to the page', () => {
+    const flex = JSON.parse(buildFiveResumeCreationFlex('https://liff.line.me/2010373013-o7pRF1um?page=form&id=form-saiyo-pro-candidate-intake&resume_status=%E3%81%BE%E3%81%A0%E6%8C%81%E3%81%A3%E3%81%A6%E3%81%84%E3%81%AA%E3%81%84')) as {
+      footer: { contents: Array<{ action: { type: string; label: string; uri?: string } }> };
+    };
+    const serialized = JSON.stringify(flex);
+
+    expect(serialized).toContain('必要事項の入力');
+    expect(serialized).toContain('職務経歴書がなくても大丈夫');
+    expect(flex.footer.contents[0]?.action).toMatchObject({ type: 'uri', label: '入力ページを開く' });
+    expect(flex.footer.contents[0]?.action.uri).toContain('resume_status=');
+    expect(serialized).not.toContain('採用PRO');
+    expect(serialized).not.toContain('採用プロ');
+    expect(serialized).not.toContain('特典');
+  });
+
+  test('application result flex waits for the next LINE guidance without scheduling CTAs', () => {
+    const flex = JSON.parse(buildSaiyoProApplicationResultFlex()) as {
+      type: string;
+      hero?: unknown;
+      footer?: unknown;
+    };
+    const serialized = JSON.stringify(flex);
+
+    expect(flex.type).toBe('bubble');
+    expect(flex.hero).toBeUndefined();
+    expect(flex.footer).toBeUndefined();
+    expect(serialized).toContain('条件確認が完了しました');
+    expect(serialized).toContain('準備ができ次第、このLINEでお知らせします');
+    expect(serialized).toContain('#00B8C8');
+    expect(serialized).toContain('#EAFBF8');
+    expect(serialized).not.toContain('/images/saiyo-pro/application-complete-20260613.png');
+    expect(serialized).not.toContain('timerex.net');
+    expect(serialized).not.toContain('面談日程');
+    expect(serialized).not.toContain('予約');
+    expect(serialized).not.toContain('#2563EB');
+    expect(serialized).not.toContain('#EFF6FF');
   });
 
   test('candidate application postbacks save answers and advance to the next question', async () => {
@@ -495,6 +678,57 @@ describe('Saiyo Pro candidate application questionnaire', () => {
       expect.objectContaining({ type: 'flex', text: expect.stringContaining('性別') }),
     ]);
     expect(linePushMessageMock).not.toHaveBeenCalled();
+  });
+
+  test('candidate application ignores stale answered-question postbacks instead of rolling progress back', async () => {
+    const replyMessageMock = vi.fn();
+    const applicationUpdates: unknown[][] = [];
+    const db = {
+      prepare(sql: string) {
+        return {
+          bind(...values: unknown[]) {
+            return {
+              first: async () => {
+                if (sql.includes('FROM saiyo_pro_applications')) {
+                  return {
+                    age: 'age_31_plus',
+                    gender: 'female',
+                    location: 'kanto',
+                    income: 'unknown',
+                  };
+                }
+                return null;
+              },
+              run: async () => {
+                if (sql.includes('INSERT INTO saiyo_pro_applications')) {
+                  applicationUpdates.push(values);
+                }
+                return { success: true };
+              },
+              all: async () => ({ results: [] }),
+            };
+          },
+        };
+      },
+    } as unknown as D1Database;
+
+    const handled = await handleSaiyoProApplicationPostback(
+      db,
+      { replyMessage: replyMessageMock } as unknown as LineClient,
+      'reply-token',
+      { id: 'friend-1', metadata: '{}' },
+      'demo:application:gender:male',
+      'saiyo-pro-candidate',
+    );
+
+    expect(handled).toBe(true);
+    expect(applicationUpdates).toHaveLength(0);
+    expect(replyMessageMock).toHaveBeenCalledWith('reply-token', [
+      expect.objectContaining({
+        type: 'text',
+        text: expect.stringContaining('回答は受け付け済み'),
+      }),
+    ]);
   });
 
   test('candidate can show the greeting banner from ordinary LINE text', async () => {
@@ -790,7 +1024,7 @@ describe('Saiyo Pro candidate application questionnaire', () => {
     expect(linePushMessageMock).not.toHaveBeenCalled();
   });
 
-  test('completed eligible answers return the interview guidance without company forwarding', async () => {
+  test('completed eligible answers return the wait guidance without scheduling or company forwarding', async () => {
     vi.mocked(verifySignature).mockResolvedValue(true);
     vi.mocked(getLineAccounts).mockResolvedValue([
       {
@@ -820,6 +1054,7 @@ describe('Saiyo Pro candidate application questionnaire', () => {
       updated_at: '2026-06-10T12:00:00+09:00',
     });
 
+    const applicationBinds: unknown[][] = [];
     const db = {
       prepare(sql: string) {
         return {
@@ -832,7 +1067,10 @@ describe('Saiyo Pro candidate application questionnaire', () => {
                 return null;
               },
               all: async () => ({ results: [] }),
-              run: async () => ({ success: true, values }),
+              run: async () => {
+                if (sql.includes('INSERT INTO saiyo_pro_applications')) applicationBinds.push(values);
+                return { success: true, values };
+              },
             };
           },
           all: async () => ({ results: [] }),
@@ -870,22 +1108,29 @@ describe('Saiyo Pro candidate application questionnaire', () => {
     expect(lineReplyMessageMock).toHaveBeenCalledWith('reply-token', [
       expect.objectContaining({
         type: 'flex',
-        text: expect.stringContaining('採用PROから求人案内'),
+        text: expect.stringContaining('条件確認が完了しました'),
       }),
     ]);
     expect(lineReplyMessageMock).toHaveBeenCalledWith('reply-token', [
       expect.objectContaining({
         type: 'flex',
-        text: expect.stringContaining('/images/saiyo-pro/application-complete-20260613.png'),
+        text: expect.stringContaining('準備ができ次第、このLINEでお知らせします'),
       }),
     ]);
-    expect(lineReplyMessageMock).toHaveBeenCalledWith('reply-token', [
+    expect(lineReplyMessageMock).not.toHaveBeenCalledWith('reply-token', [
+      expect.objectContaining({ type: 'flex', text: expect.stringContaining('/images/saiyo-pro/application-complete-20260613.png') }),
+    ]);
+    expect(lineReplyMessageMock).not.toHaveBeenCalledWith('reply-token', [
       expect.objectContaining({ type: 'flex', text: expect.stringContaining('timerex.net') }),
     ]);
+    expect(lineReplyMessageMock).not.toHaveBeenCalledWith('reply-token', [
+      expect.objectContaining({ type: 'flex', text: expect.stringContaining('面談日程') }),
+    ]);
+    expect(applicationBinds[0]?.[8]).toBeNull();
     expect(linePushMessageMock).not.toHaveBeenCalled();
   });
 
-  test('answering age again clears stale later answers and does not send interview guidance early', async () => {
+  test('answering age again from an old card is ignored after the questionnaire is complete', async () => {
     vi.mocked(verifySignature).mockResolvedValue(true);
     vi.mocked(getLineAccounts).mockResolvedValue([
       {
@@ -972,28 +1217,16 @@ describe('Saiyo Pro candidate application questionnaire', () => {
     await waitUntil.mock.calls[0]?.[0];
 
     expect(res.status).toBe(200);
-    expect(applicationBinds[0]).toEqual([
-      expect.any(String),
-      'friend-1',
-      'saiyo-pro-candidate',
-      'age_22_24',
-      null,
-      null,
-      null,
-      'pending',
-      null,
-      '2026-06-10T12:00:00+09:00',
-      '2026-06-10T12:00:00+09:00',
-    ]);
+    expect(applicationBinds).toHaveLength(0);
     expect(lineReplyMessageMock).toHaveBeenCalledWith('reply-token', [
-      expect.objectContaining({ type: 'flex', text: expect.stringContaining('性別') }),
+      expect.objectContaining({ type: 'text', text: expect.stringContaining('回答は受け付け済み') }),
     ]);
     expect(lineReplyMessageMock).not.toHaveBeenCalledWith('reply-token', [
       expect.objectContaining({ type: 'text', text: expect.stringContaining('timerex.net') }),
     ]);
   });
 
-  test('changing gender clears stale location and income before re-evaluating eligibility', async () => {
+  test('changing gender from an old card is ignored after the questionnaire is complete', async () => {
     vi.mocked(verifySignature).mockResolvedValue(true);
     vi.mocked(getLineAccounts).mockResolvedValue([
       {
@@ -1080,21 +1313,9 @@ describe('Saiyo Pro candidate application questionnaire', () => {
     await waitUntil.mock.calls[0]?.[0];
 
     expect(res.status).toBe(200);
-    expect(applicationBinds[0]).toEqual([
-      expect.any(String),
-      'friend-1',
-      'saiyo-pro-candidate',
-      'age_22_24',
-      'female',
-      null,
-      null,
-      'pending',
-      null,
-      '2026-06-10T12:00:00+09:00',
-      '2026-06-10T12:00:00+09:00',
-    ]);
+    expect(applicationBinds).toHaveLength(0);
     expect(lineReplyMessageMock).toHaveBeenCalledWith('reply-token', [
-      expect.objectContaining({ type: 'flex', text: expect.stringContaining('希望勤務地') }),
+      expect.objectContaining({ type: 'text', text: expect.stringContaining('回答は受け付け済み') }),
     ]);
     expect(lineReplyMessageMock).not.toHaveBeenCalledWith('reply-token', [
       expect.objectContaining({ type: 'text', text: expect.stringContaining('timerex.net') }),
@@ -1302,16 +1523,44 @@ describe('demo rich menu copy', () => {
       { id: 'yamada', name: '山本 一気', job: '採用PRO 求人案内対象者', color: '#16A34A', status: '面接日程 調整中', lastMessage: '明日15時でお願いします。' },
     )) as {
       type: string;
-      footer: { contents: Array<{ action: { type: string; label: string; uri?: string; data?: string } }> };
+      hero: { action: { type: string; label: string; text: string } };
+      footer?: unknown;
     };
 
     expect(flex.type).toBe('bubble');
     expect(JSON.stringify(flex)).toContain('採用PRO 求人案内');
-    expect(flex.footer.contents[0]?.action).toEqual({
+    expect(JSON.stringify(flex)).not.toContain('footer');
+    expect(JSON.stringify(flex)).toContain('求人案内の確認を始める');
+    expect(flex.hero.action).toEqual({
       type: 'message',
       label: '求人案内の確認を始める',
       text: '求人案内の確認を始める',
     });
+  });
+
+  test('candidate rich menu replies do not expose demo jobs or fake application status', () => {
+    const jobs = buildSaiyoProCandidateMenuText('求人を見る');
+    const status = buildSaiyoProCandidateMenuText('応募状況');
+    const combined = `${jobs}\n${status}`;
+
+    expect(jobs).toContain('求人案内の確認');
+    expect(status).toContain('現在、応募中の求人はありません');
+    expect(combined).not.toContain('未経験エンジニア');
+    expect(combined).not.toContain('犬の散歩');
+    expect(combined).not.toContain('Ikki Yamamoto');
+    expect(combined).not.toContain('面接日程 調整中');
+  });
+
+  test('company rich menu replies do not expose demo applicants', () => {
+    const matches = buildSaiyoProCompanyMenuText('新着応募者');
+    const unread = buildSaiyoProCompanyMenuText('未対応チャット');
+    const combined = `${matches}\n${unread}`;
+
+    expect(matches).toContain('現在、新着応募者はありません');
+    expect(unread).toContain('現在、未対応チャットはありません');
+    expect(combined).not.toContain('Ikki Yamamoto');
+    expect(combined).not.toContain('山本 一気');
+    expect(combined).not.toContain('面接日程 調整中');
   });
 
   test('candidate chat menu asks the user to match before opening chat', () => {
@@ -1330,9 +1579,9 @@ describe('demo rich menu copy', () => {
     expect(JSON.stringify(flex)).not.toContain('時原 陸');
     expect(JSON.stringify(flex)).not.toContain('/demo-candidate-chat');
     expect(flex.footer.contents[0]?.action).toEqual({
-      type: 'postback',
+      type: 'message',
       label: '求人を見る',
-      data: 'demo:candidate-menu:jobs-card',
+      text: '求人案内の確認を始める',
     });
   });
 
@@ -1351,19 +1600,11 @@ describe('demo rich menu copy', () => {
     expect(flex.footer.contents[0]?.action.uri).not.toContain('/demo-candidate-jobs');
   });
 
-  test('demo welcome messages are soft plain text instead of flex cards', () => {
+  test('demo welcome only sends candidate-side onboarding text', () => {
     const company = buildDemoWelcomeText('saiyo-pro-company');
     const candidate = buildDemoWelcomeText('saiyo-pro-candidate');
 
-    expect(company).toContain('こんにちは');
-    expect(company).toContain('採用PRO 企業向け');
-    expect(company).toContain('まずは「アカウント連携」');
-    expect(company).toContain('新着応募者');
-    expect(company).toContain('未対応チャット');
-    expect(company).toContain('求人管理');
-    expect(company).toContain('アカウント連携');
-    expect(company).not.toContain('採用実績');
-    expect(company).not.toContain('"type":"bubble"');
+    expect(company).toBeNull();
     expect(candidate).toContain('採用PROへのご登録ありがとうございます');
     expect(candidate).toContain('あなたに合いそうな求人');
     expect(candidate).toContain('求人を見る');

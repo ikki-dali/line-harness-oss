@@ -52,7 +52,10 @@
     "044_forms_og.sql",
     "045_menus_auto_tag.sql",
     "046_timerex.sql",
-    "047_saiyo_pro_applications.sql"
+    "047_saiyo_pro_applications.sql",
+    "048_account_scoped_friends.sql",
+    "049_saiyo_pro_company_jobs.sql",
+    "050_product_integrations.sql"
   ],
-  "migrationCount": 53
+  "migrationCount": 56
 }

@@ -93,7 +93,14 @@ export async function getFollowingLineUserIdsByTag(
 export async function getFriendByLineUserId(
   db: D1Database,
   lineUserId: string,
+  lineAccountId?: string | null,
 ): Promise<Friend | null> {
+  if (lineAccountId) {
+    return db
+      .prepare(`SELECT * FROM friends WHERE line_user_id = ? AND line_account_id = ?`)
+      .bind(lineUserId, lineAccountId)
+      .first<Friend>();
+  }
   return db
     .prepare(`SELECT * FROM friends WHERE line_user_id = ?`)
     .bind(lineUserId)
@@ -136,6 +143,7 @@ export async function setFriendFirstTrackedLinkIfNull(
 
 export interface UpsertFriendInput {
   lineUserId: string;
+  lineAccountId?: string | null;
   displayName?: string | null;
   pictureUrl?: string | null;
   statusMessage?: string | null;
@@ -146,7 +154,7 @@ export async function upsertFriend(
   input: UpsertFriendInput,
 ): Promise<Friend> {
   const now = jstNow();
-  const existing = await getFriendByLineUserId(db, input.lineUserId);
+  const existing = await getFriendByLineUserId(db, input.lineUserId, input.lineAccountId);
 
   if (existing) {
     await db
@@ -157,29 +165,30 @@ export async function upsertFriend(
              status_message = ?,
              is_following = 1,
              updated_at = ?
-         WHERE line_user_id = ?`,
+         WHERE id = ?`,
       )
       .bind(
         'displayName' in input ? (input.displayName ?? null) : existing.display_name,
         'pictureUrl' in input ? (input.pictureUrl ?? null) : existing.picture_url,
         'statusMessage' in input ? (input.statusMessage ?? null) : existing.status_message,
         now,
-        input.lineUserId,
+        existing.id,
       )
       .run();
 
-    return (await getFriendByLineUserId(db, input.lineUserId))!;
+    return (await getFriendById(db, existing.id))!;
   }
 
   const id = crypto.randomUUID();
   await db
     .prepare(
-      `INSERT INTO friends (id, line_user_id, display_name, picture_url, status_message, is_following, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, 1, ?, ?)`,
+      `INSERT INTO friends (id, line_user_id, line_account_id, display_name, picture_url, status_message, is_following, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)`,
     )
     .bind(
       id,
       input.lineUserId,
+      input.lineAccountId ?? null,
       input.displayName ?? null,
       input.pictureUrl ?? null,
       input.statusMessage ?? null,
@@ -195,7 +204,19 @@ export async function updateFriendFollowStatus(
   db: D1Database,
   lineUserId: string,
   isFollowing: boolean,
+  lineAccountId?: string | null,
 ): Promise<void> {
+  if (lineAccountId) {
+    await db
+      .prepare(
+        `UPDATE friends
+         SET is_following = ?, updated_at = ?
+         WHERE line_user_id = ? AND line_account_id = ?`,
+      )
+      .bind(isFollowing ? 1 : 0, jstNow(), lineUserId, lineAccountId)
+      .run();
+    return;
+  }
   await db
     .prepare(
       `UPDATE friends

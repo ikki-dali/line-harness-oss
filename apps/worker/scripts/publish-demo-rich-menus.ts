@@ -8,12 +8,8 @@ const execFileAsync = promisify(execFile);
 const OUT_DIR = 'tmp/demo-rich-menus';
 const UPLOAD_IMAGE_EXT = 'jpg';
 const UPLOAD_IMAGE_CONTENT_TYPE = 'image/jpeg';
-const WIDTH = 2500;
-const HEIGHT = 1686;
 const COLS = 2;
 const ROWS = 2;
-const CELL_WIDTH = WIDTH / COLS;
-const CELL_HEIGHT = HEIGHT / ROWS;
 
 const COMPANY_ACCOUNT_ID = 'saiyo-pro-company';
 const CANDIDATE_ACCOUNT_ID = 'saiyo-pro-candidate';
@@ -27,6 +23,10 @@ type DemoRichMenuSpec = {
   name: string;
   chatBarText: string;
   imagePath: string;
+  size: {
+    width: number;
+    height: number;
+  };
   tabs: Array<{
     title: string;
     subtitle: string;
@@ -53,42 +53,35 @@ export const specs: DemoRichMenuSpec[] = [
     name: '採用PRO 企業向け 4ボタン',
     chatBarText: '企業メニュー',
     imagePath: 'assets/rich-menus/saiyo-pro/company.png',
+    size: { width: 2500, height: 1250 },
     tabs: [
       {
         title: '新着応募者',
         subtitle: '登録者を確認',
         text: '新着応募者',
         color: '#2563EB',
-        action: { type: 'postback', label: '新着応募者', data: 'demo:company-menu:matches' },
+        action: { type: 'message', label: '新着応募者', text: '新着応募者' },
       },
       {
         title: '未対応',
         subtitle: '返信が必要なチャット',
         text: '未対応チャット',
         color: '#16A34A',
-        action: { type: 'postback', label: '未対応チャット', data: 'demo:company-menu:unread' },
+        action: { type: 'message', label: '未対応チャット', text: '未対応チャット' },
       },
       {
         title: '求人管理',
         subtitle: '求人を出稿',
         text: '求人管理',
         color: '#7C3AED',
-        action: {
-          type: 'uri',
-          label: '求人管理',
-          uri: `${SAIYO_PRO_WORKER_URL}/demo-company-jobs`,
-        },
+        action: { type: 'message', label: '求人管理', text: '求人管理' },
       },
       {
         title: 'アカウント設定',
         subtitle: '情報と各種設定',
         text: 'アカウント設定',
         color: '#4B5563',
-        action: {
-          type: 'uri',
-          label: 'アカウント設定',
-          uri: `${SAIYO_PRO_WORKER_URL}/demo-company-settings`,
-        },
+        action: { type: 'message', label: 'アカウント設定', text: 'アカウント設定' },
       },
     ],
   },
@@ -98,42 +91,35 @@ export const specs: DemoRichMenuSpec[] = [
     name: '採用PRO 求職者向け 4ボタン',
     chatBarText: '応募メニュー',
     imagePath: 'assets/rich-menus/saiyo-pro/candidate.png',
+    size: { width: 2500, height: 988 },
     tabs: [
       {
         title: '求人を見る',
         subtitle: 'おすすめ求人',
         text: '求人を見る',
         color: '#2563EB',
-        action: { type: 'postback', label: '求人を見る', data: 'demo:candidate-menu:jobs-card' },
+        action: { type: 'message', label: '求人を見る', text: '求人案内の確認を始める' },
       },
       {
         title: 'チャット',
         subtitle: '応募先と連絡',
         text: 'チャット',
         color: '#16A34A',
-        action: {
-          type: 'uri',
-          label: 'チャット',
-          uri: `${SAIYO_PRO_WORKER_URL}/demo-candidate-chat?candidate=yamada`,
-        },
+        action: { type: 'message', label: 'チャット', text: 'チャット' },
       },
       {
         title: 'プロフィール',
         subtitle: '情報を編集',
         text: 'プロフィール',
         color: '#7C3AED',
-        action: {
-          type: 'uri',
-          label: 'プロフィール',
-          uri: `${SAIYO_PRO_WORKER_URL}/demo-candidate-chat?candidate=yamada&profile=1`,
-        },
+        action: { type: 'message', label: 'プロフィール', text: 'プロフィール' },
       },
       {
         title: '応募状況',
         subtitle: '進捗を確認',
         text: '応募状況',
         color: '#4B5563',
-        action: { type: 'postback', label: '応募状況', data: 'demo:candidate-menu:status' },
+        action: { type: 'message', label: '応募状況', text: '応募状況' },
       },
     ],
   },
@@ -168,17 +154,20 @@ async function main() {
 }
 
 export function buildRichMenuPayload(spec: DemoRichMenuSpec) {
+  const cellWidth = spec.size.width / COLS;
+  const cellHeight = spec.size.height / ROWS;
+
   return {
-    size: { width: WIDTH, height: HEIGHT },
+    size: spec.size,
     selected: true,
     name: spec.name,
     chatBarText: spec.chatBarText,
     areas: spec.tabs.map((tab, index) => ({
       bounds: {
-        x: (index % COLS) * CELL_WIDTH,
-        y: Math.floor(index / COLS) * CELL_HEIGHT,
-        width: CELL_WIDTH,
-        height: CELL_HEIGHT,
+        x: (index % COLS) * cellWidth,
+        y: Math.floor(index / COLS) * cellHeight,
+        width: cellWidth,
+        height: cellHeight,
       },
       action: tab.action ?? { type: 'message', label: tab.title, text: tab.text },
     })),
@@ -189,11 +178,11 @@ async function renderRichMenuImage(spec: DemoRichMenuSpec, outputPath: string): 
   await execFileAsync('magick', [
     spec.imagePath,
     '-resize',
-    `${WIDTH}x${HEIGHT}^`,
+    `${spec.size.width}x${spec.size.height}^`,
     '-gravity',
     'center',
     '-extent',
-    `${WIDTH}x${HEIGHT}`,
+    `${spec.size.width}x${spec.size.height}`,
     '-strip',
     '-interlace',
     'Plane',

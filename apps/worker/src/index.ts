@@ -77,6 +77,8 @@ import adminVersion from './routes/admin-version.js';
 import adminUpdate from './routes/admin-update.js';
 import { timerex } from './routes/timerex.js';
 import { demoChat } from './routes/demo-chat.js';
+import { saiyoProJobs } from './routes/saiyo-pro-jobs.js';
+import { fiveRpo } from './routes/five-rpo.js';
 
 export type Env = {
   Bindings: {
@@ -125,7 +127,13 @@ export type Env = {
 
 const app = new Hono<Env>();
 
-app.get('/', (c) => c.redirect('/demo-chat'));
+app.get('/', (c) => {
+  const workerName = c.env.WORKER_NAME ?? '';
+  if (workerName === 'saiyo-pro-harness' && c.env.ASSETS && typeof c.env.ASSETS.fetch === 'function') {
+    return c.env.ASSETS.fetch(c.req.raw);
+  }
+  return c.redirect('/demo-chat');
+});
 
 // CORS — allow all origins for MVP
 app.use('*', cors({ origin: '*' }));
@@ -183,6 +191,8 @@ app.route('/', dedupPreview);
 app.route('/', profileRefresh);
 app.route('/', richMenuGroups);
 app.route('/', timerex);
+app.route('/', saiyoProJobs);
+app.route('/', fiveRpo);
 app.route('/', demoChat);
 
 // Phase 5 (upgrade flow) — public build metadata endpoint. Mounted under
@@ -318,7 +328,7 @@ app.get('/r/:ref', async (c) => {
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>LINE で開く</title>
+<title>FIVE 選考エントリー</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 body{font-family:'Hiragino Sans','Helvetica Neue',system-ui,sans-serif;background:#f5f7f5;display:flex;justify-content:center;align-items:center;min-height:100vh}
@@ -339,7 +349,7 @@ body{font-family:'Hiragino Sans','Helvetica Neue',system-ui,sans-serif;backgroun
 <div class="line-icon">
 <svg viewBox="0 0 48 48" fill="none"><rect width="48" height="48" rx="12" fill="#06C755"/><path d="M24 12C17.37 12 12 16.58 12 22.2c0 3.54 2.35 6.65 5.86 8.47-.2.74-.76 2.75-.87 3.17-.14.55.2.54.42.39.18-.12 2.84-1.88 4-2.65.84.13 1.7.22 2.59.22 6.63 0 12-4.58 12-10.2S30.63 12 24 12z" fill="#fff"/></svg>
 </div>
-<p class="msg">友達追加して始める</p>
+<p class="msg">FIVE 選考エントリーを開始します</p>
 <a href="${buttonHref}" class="btn">LINEで開く</a>
 ${longPressHint}
 <p class="help">うまく開けない方は <a href="${helpUrl}">こちら</a></p>
@@ -354,7 +364,7 @@ ${longPressHint}
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>LINE で開く</title>
+<title>FIVE 選考エントリー</title>
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
 body{font-family:'Hiragino Sans','Helvetica Neue',system-ui,sans-serif;background:#f5f7f5;display:flex;justify-content:center;align-items:center;min-height:100vh}
@@ -373,12 +383,12 @@ body{font-family:'Hiragino Sans','Helvetica Neue',system-ui,sans-serif;backgroun
 <div class="line-icon">
 <svg viewBox="0 0 48 48" fill="none"><rect width="48" height="48" rx="12" fill="#06C755"/><path d="M24 12C17.37 12 12 16.58 12 22.2c0 3.54 2.35 6.65 5.86 8.47-.2.74-.76 2.75-.87 3.17-.14.55.2.54.42.39.18-.12 2.84-1.88 4-2.65.84.13 1.7.22 2.59.22 6.63 0 12-4.58 12-10.2S30.63 12 24 12z" fill="#fff"/></svg>
 </div>
-<p class="msg">スマートフォンで QR コードを読み取ってください</p>
+<p class="msg">FIVE 選考エントリーを開始します<br>スマートフォンで QR コードを読み取ってください</p>
 <div class="qr">
 <img src="/api/qr?size=240x240&data=${encodeURIComponent(liffTarget)}" alt="QR Code">
 </div>
 <p class="hint">LINE アプリのカメラまたは<br>スマートフォンのカメラで読み取れます</p>
-<p class="footer">友だち追加で全機能を無料体験できます</p>
+<p class="footer">LINEで選考に必要な確認を進めます</p>
 </div>
 </body>
 </html>`);

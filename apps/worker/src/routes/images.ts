@@ -3,7 +3,7 @@ import type { Env } from '../index.js';
 
 const images = new Hono<Env>();
 
-// POST /api/images — upload image (base64 or binary)
+// POST /api/images — upload image or document (base64 or binary)
 images.post('/api/images', async (c) => {
   try {
     const contentType = c.req.header('Content-Type') || '';
@@ -42,15 +42,15 @@ images.post('/api/images', async (c) => {
     }
 
     if (data.byteLength > 10 * 1024 * 1024) {
-      return c.json({ success: false, error: 'Image too large (max 10MB)' }, 400);
+      return c.json({ success: false, error: 'File too large (max 10MB)' }, 400);
     }
 
-    const allowedTypes = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
+    const allowedTypes = ['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'application/pdf'];
     if (!allowedTypes.includes(mimeType)) {
-      return c.json({ success: false, error: `Unsupported image type: ${mimeType}. Allowed: ${allowedTypes.join(', ')}` }, 400);
+      return c.json({ success: false, error: `Unsupported file type: ${mimeType}. Allowed: ${allowedTypes.join(', ')}` }, 400);
     }
 
-    const ext = mimeType.split('/')[1] === 'jpeg' ? 'jpg' : mimeType.split('/')[1];
+    const ext = mimeType === 'application/pdf' ? 'pdf' : mimeType.split('/')[1] === 'jpeg' ? 'jpg' : mimeType.split('/')[1];
     const id = crypto.randomUUID();
     const key = `${id}.${ext}`;
 

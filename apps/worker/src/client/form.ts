@@ -20,17 +20,28 @@ declare const liff: {
   closeWindow(): void;
 };
 
+import { getEffectiveSearchParams } from './url-params.js';
+
 const UUID_STORAGE_KEY = 'lh_uuid';
 const FORM_VERSION = '2.0.0'; // cache buster
 
 interface FormField {
   name: string;
   label: string;
-  type: 'text' | 'email' | 'tel' | 'number' | 'textarea' | 'select' | 'radio' | 'checkbox' | 'date';
+  type: 'text' | 'email' | 'tel' | 'number' | 'textarea' | 'select' | 'radio' | 'checkbox' | 'date' | 'file';
   required?: boolean;
+  requiredIf?: ConditionalRule;
+  showIf?: ConditionalRule;
   options?: string[];
   placeholder?: string;
   columns?: number;
+  accept?: string;
+  hidden?: boolean;
+}
+
+interface ConditionalRule {
+  field: string;
+  equals: string | string[];
 }
 
 interface FormDef {
@@ -40,6 +51,8 @@ interface FormDef {
   fields: FormField[];
   isActive: boolean;
   hideProfile?: boolean;
+  onSubmitMessageType?: string | null;
+  onSubmitMessageContent?: string | null;
   onSubmitWebhookUrl?: string | null;
   onSubmitWebhookHeaders?: string | null;
   onSubmitWebhookFailMessage?: string | null;
@@ -106,11 +119,15 @@ function renderField(field: FormField): string {
   const required = field.required ? ' required' : '';
   const placeholder = field.placeholder ? ` placeholder="${escapeHtml(field.placeholder)}"` : '';
   const requiredMark = field.required ? '<span class="required-mark">*</span>' : '';
+  const prefill = getPrefillValue(field.name);
+  const showIfAttrs = field.showIf
+    ? ` data-show-if-field="${escapeHtml(field.showIf.field)}" data-show-if-equals="${escapeHtml(JSON.stringify(field.showIf.equals))}" hidden`
+    : field.hidden ? ' hidden' : '';
 
   // If this is an x_username field, render a fuzzy-search autocomplete input
   if (field.name === 'x_username') {
     return `
-      <div class="form-field">
+      <div class="form-field"${showIfAttrs}>
         <label class="form-label" for="field-${escapeHtml(field.name)}">
           ${escapeHtml(field.label)}${requiredMark}
         </label>
@@ -120,6 +137,7 @@ function renderField(field: FormField): string {
             name="${escapeHtml(field.name)}"
             id="field-${escapeHtml(field.name)}"
             class="form-input x-autocomplete-input"
+            value="${escapeHtml(prefill)}"
             placeholder="${field.placeholder ? escapeHtml(field.placeholder) : 'X ID or 名前で検索（3文字以上）'}"
             autocomplete="off"
             ${required} />
@@ -141,12 +159,12 @@ function renderField(field: FormField): string {
         id="field-${escapeHtml(field.name)}"
         class="form-textarea"
         rows="4"
-        ${placeholder}${required}></textarea>`;
+        ${placeholder}${required}>${escapeHtml(prefill)}</textarea>`;
       break;
 
     case 'select': {
       const opts = (field.options ?? [])
-        .map((o) => `<option value="${escapeHtml(o)}">${escapeHtml(o)}</option>`)
+        .map((o) => `<option value="${escapeHtml(o)}"${prefill === o ? ' selected' : ''}>${escapeHtml(o)}</option>`)
         .join('');
       inputHtml = `<select
         name="${escapeHtml(field.name)}"
@@ -163,7 +181,7 @@ function renderField(field: FormField): string {
         .map(
           (o) =>
             `<label class="radio-label">
-              <input type="radio" name="${escapeHtml(field.name)}" value="${escapeHtml(o)}"${required} />
+              <input type="radio" name="${escapeHtml(field.name)}" value="${escapeHtml(o)}"${prefill === o ? ' checked' : ''}${required} />
               ${escapeHtml(o)}
             </label>`,
         )
@@ -177,12 +195,23 @@ function renderField(field: FormField): string {
         .map(
           (o) =>
             `<label class="checkbox-label">
-              <input type="checkbox" name="${escapeHtml(field.name)}" value="${escapeHtml(o)}" />
+              <input type="checkbox" name="${escapeHtml(field.name)}" value="${escapeHtml(o)}"${prefill.split(',').includes(o) ? ' checked' : ''} />
               ${escapeHtml(o)}
             </label>`,
         )
         .join('');
       inputHtml = `<div class="checkbox-group${field.columns === 2 ? ' two-col' : ''}">${boxes}</div>`;
+      break;
+    }
+
+    case 'file': {
+      const accept = field.accept ? ` accept="${escapeHtml(field.accept)}"` : '';
+      inputHtml = `<input
+        type="file"
+        name="${escapeHtml(field.name)}"
+        id="field-${escapeHtml(field.name)}"
+        class="form-input"
+        ${accept}${required} />`;
       break;
     }
 
@@ -192,18 +221,97 @@ function renderField(field: FormField): string {
         name="${escapeHtml(field.name)}"
         id="field-${escapeHtml(field.name)}"
         class="form-input"
+        value="${escapeHtml(prefill)}"
         ${placeholder}${required} />`;
       break;
   }
 
   return `
-    <div class="form-field">
+    <div class="form-field"${showIfAttrs}>
       <label class="form-label" for="field-${escapeHtml(field.name)}">
         ${escapeHtml(field.label)}${requiredMark}
       </label>
       ${inputHtml}
     </div>
   `;
+}
+
+function getPrefillValue(fieldName: string): string {
+  const value = getEffectiveSearchParams().get(fieldName);
+  return value ?? '';
+}
+
+function getFieldValue(fieldName: string): string | string[] {
+  const checkboxes = Array.from(document.querySelectorAll<HTMLInputElement>(`input[type="checkbox"][name="${fieldName}"]:checked`));
+  if (checkboxes.length > 0) return checkboxes.map((el) => el.value);
+  const radio = document.querySelector<HTMLInputElement>(`input[type="radio"][name="${fieldName}"]:checked`);
+  if (radio) return radio.value;
+  const el = document.querySelector<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>(`[name="${fieldName}"]`);
+  return el?.value ?? '';
+}
+
+function conditionalRuleMatches(rule: ConditionalRule | undefined): boolean {
+  if (!rule) return true;
+  const actual = getFieldValue(rule.field);
+  const expected = Array.isArray(rule.equals) ? rule.equals : [rule.equals];
+  if (Array.isArray(actual)) return actual.some((value) => expected.includes(value));
+  return expected.includes(actual);
+}
+
+function isFieldVisible(field: FormField): boolean {
+  return conditionalRuleMatches(field.showIf);
+}
+
+function isFieldRequired(field: FormField): boolean {
+  if (field.hidden) return false;
+  if (!isFieldVisible(field)) return false;
+  return Boolean(field.required || (field.requiredIf ? conditionalRuleMatches(field.requiredIf) : false));
+}
+
+function syncConditionalFields(): void {
+  const { formDef } = state;
+  if (!formDef) return;
+  for (const field of formDef.fields) {
+    const containers = Array.from(document.querySelectorAll<HTMLElement>(`.form-field`));
+    const container = containers.find((item) => item.querySelector(`[name="${field.name}"]`));
+    if (!container) continue;
+    if (field.hidden) {
+      container.hidden = true;
+      for (const input of Array.from(container.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>('[name]'))) {
+        input.required = false;
+      }
+      continue;
+    }
+    const visible = isFieldVisible(field);
+    container.hidden = !visible;
+    for (const input of Array.from(container.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>('[name]'))) {
+      if (!visible) {
+        if (input instanceof HTMLInputElement && (input.type === 'checkbox' || input.type === 'radio')) {
+          input.checked = false;
+        } else {
+          input.value = '';
+        }
+      }
+      input.required = isFieldRequired(field);
+    }
+  }
+}
+
+function attachConditionalFieldEvents(): void {
+  const { formDef } = state;
+  if (!formDef) return;
+  const dependencyNames = new Set<string>();
+  for (const field of formDef.fields) {
+    if (field.showIf) dependencyNames.add(field.showIf.field);
+    if (field.requiredIf) dependencyNames.add(field.requiredIf.field);
+  }
+  for (const name of dependencyNames) {
+    for (const el of Array.from(document.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>(`[name="${name}"]`))) {
+      el.addEventListener('change', syncConditionalFields);
+      el.addEventListener('input', syncConditionalFields);
+    }
+  }
+  syncConditionalFields();
 }
 
 // ========== Styles ==========
@@ -424,7 +532,7 @@ function render(): void {
 
       // Validate survey fields
       for (const field of surveyFields) {
-        if (!field.required) continue;
+        if (!isFieldRequired(field)) continue;
         if (field.type === 'checkbox') {
           const checked = document.querySelectorAll<HTMLInputElement>(`input[name="${field.name}"]:checked`);
           if (checked.length === 0) {
@@ -453,6 +561,7 @@ function render(): void {
 
       const surveyData: Record<string, unknown> = {};
       for (const field of surveyFields) {
+        if (!isFieldVisible(field)) continue;
         if (field.type === 'checkbox') {
           surveyData[field.name] = Array.from(document.querySelectorAll<HTMLInputElement>(`input[name="${field.name}"]:checked`)).map((el) => el.value);
         } else if (field.type === 'radio') {
@@ -591,12 +700,13 @@ function renderWebhookSuccess(message: string): void {
 
 function renderSuccess(): void {
   const app = getApp();
+  const copy = getSubmitSuccessCopy();
   app.innerHTML = `
     <div class="form-page">
       <div class="success-card">
         <div class="success-icon">✓</div>
-        <h2>送信完了！</h2>
-        <p class="success-message">ご回答ありがとうございました。</p>
+        <h2>${escapeHtml(copy.title)}</h2>
+        <p class="success-message">${escapeHtml(copy.message)}</p>
         <button class="close-btn" id="closeBtn">閉じる</button>
       </div>
     </div>
@@ -616,6 +726,28 @@ function renderSuccess(): void {
       try { liff.closeWindow(); } catch { /* ignore */ }
     }, 3000);
   }
+}
+
+function getSubmitSuccessCopy(): { title: string; message: string } {
+  if (state.formDef?.id !== 'form-saiyo-pro-candidate-intake') {
+    return {
+      title: '送信完了！',
+      message: 'ご回答ありがとうございました。',
+    };
+  }
+
+  const resumeStatus = getEffectiveSearchParams().get('resume_status');
+  if (resumeStatus === 'まだ持っていない') {
+    return {
+      title: 'ご入力ありがとうございます',
+      message: '入力内容を確認し、選考用の情報として整理します。確認後、次のご案内をLINEでお送りします。',
+    };
+  }
+
+  return {
+    title: '提出ありがとうございます',
+    message: '内容を確認後、次のご案内をLINEでお送りします。',
+  };
 }
 
 function renderFormError(message: string): void {
@@ -662,6 +794,7 @@ function collectFormData(): Record<string, unknown> {
   const result: Record<string, unknown> = {};
 
   for (const field of formDef.fields) {
+    if (!isFieldVisible(field)) continue;
     if (field.type === 'checkbox') {
       const checked = Array.from(
         document.querySelectorAll<HTMLInputElement>(
@@ -674,6 +807,9 @@ function collectFormData(): Record<string, unknown> {
         `input[name="${field.name}"]:checked`,
       );
       result[field.name] = checked?.value ?? '';
+    } else if (field.type === 'file') {
+      const el = document.querySelector<HTMLInputElement>(`input[type="file"][name="${field.name}"]`);
+      result[field.name] = el?.dataset.uploadedUrl ?? '';
     } else {
       const el = document.querySelector<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>(
         `[name="${field.name}"]`,
@@ -690,7 +826,7 @@ function validateForm(): string | null {
   if (!formDef) return null;
 
   for (const field of formDef.fields) {
-    if (!field.required) continue;
+    if (!isFieldRequired(field)) continue;
 
     if (field.type === 'checkbox') {
       const checked = document.querySelectorAll<HTMLInputElement>(
@@ -702,6 +838,9 @@ function validateForm(): string | null {
         `input[name="${field.name}"]:checked`,
       );
       if (!checked) return `${field.label} は必須項目です`;
+    } else if (field.type === 'file') {
+      const el = document.querySelector<HTMLInputElement>(`input[type="file"][name="${field.name}"]`);
+      if (!el?.files?.length && !el?.dataset.uploadedUrl) return `${field.label} は必須項目です`;
     } else {
       const el = document.querySelector<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>(
         `[name="${field.name}"]`,
@@ -737,6 +876,9 @@ async function submitForm(): Promise<void> {
   }
 
   try {
+    if (submitBtn) submitBtn.textContent = 'アップロード中...';
+    await uploadFileFields();
+    if (submitBtn) submitBtn.textContent = '送信中...';
     const data = collectFormData();
     console.log('Form data collected:', JSON.stringify(data));
 
@@ -835,6 +977,28 @@ async function submitForm(): Promise<void> {
   }
 }
 
+async function uploadFileFields(): Promise<void> {
+  const fileInputs = Array.from(document.querySelectorAll<HTMLInputElement>('input[type="file"][name]'));
+  for (const input of fileInputs) {
+    if (input.hidden || input.closest<HTMLElement>('.form-field')?.hidden) continue;
+    const file = input.files?.[0];
+    if (!file || input.dataset.uploadedUrl) continue;
+    if (file.size > 10 * 1024 * 1024) {
+      throw new Error(`${file.name} は10MB以内にしてください`);
+    }
+    const res = await apiCall('/api/images', {
+      method: 'POST',
+      headers: { 'Content-Type': file.type || 'application/octet-stream' },
+      body: file,
+    });
+    const json = await res.json().catch(() => null) as { success?: boolean; data?: { url?: string }; error?: string } | null;
+    if (!res.ok || !json?.success || !json.data?.url) {
+      throw new Error(json?.error || `${file.name} をアップロードできませんでした`);
+    }
+    input.dataset.uploadedUrl = json.data.url;
+  }
+}
+
 function attachXAutocomplete(): void {
   const input = document.querySelector<HTMLInputElement>('.x-autocomplete-input');
   if (!input) return;
@@ -851,7 +1015,7 @@ function attachXAutocomplete(): void {
 
   // Extract gateId from URL param (priority) or onSubmitWebhookUrl
   function getGateId(): string | null {
-    const urlParams = new URLSearchParams(window.location.search);
+    const urlParams = getEffectiveSearchParams();
     const gateParam = urlParams.get('gate');
     if (gateParam) return gateParam;
     const url = state.formDef?.onSubmitWebhookUrl ?? '';
@@ -1148,6 +1312,7 @@ function attachXAutocomplete(): void {
 }
 
 function attachFormEvents(): void {
+  attachConditionalFieldEvents();
   const form = document.getElementById('liff-form');
   form?.addEventListener('submit', (e) => {
     e.preventDefault();
@@ -1228,7 +1393,7 @@ export async function initForm(formId: string | null): Promise<void> {
     state.formDef = json.data;
 
     // Extract X Harness base URL: from URL param (priority) or webhook URL
-    const urlParams = new URLSearchParams(window.location.search);
+    const urlParams = getEffectiveSearchParams();
     const xhParam = urlParams.get('xh');
     if (xhParam) {
       state.xHarnessBaseUrl = xhParam.replace(/\/$/, '');
@@ -1259,4 +1424,3 @@ export async function initForm(formId: string | null): Promise<void> {
     renderFormError(err instanceof Error ? err.message : 'エラーが発生しました');
   }
 }
-

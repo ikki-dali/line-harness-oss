@@ -23,6 +23,7 @@ import type { EntryRoute } from '@line-crm/db';
 import { fireEvent } from '../services/event-bus.js';
 import { buildMessage, expandVariables } from '../services/step-delivery.js';
 import type { Env } from '../index.js';
+import { buildCandidateJobsUrl, buildJobManagementUrl } from './saiyo-pro-jobs.js';
 import {
   DEMO_CANDIDATE_LINE_ACCOUNT_ID,
   DEMO_CANDIDATES,
@@ -39,7 +40,6 @@ import {
   SAIYO_PRO_BRAND_PRIMARY,
   SAIYO_PRO_BRAND_SECONDARY,
   SAIYO_PRO_BRAND_SOFT_BG,
-  SAIYO_PRO_APPLICATION_COMPLETE_IMAGE_URL,
   SAIYO_PRO_APPLICATION_START_IMAGE_URL,
   resolveSaiyoProDemoCandidateByLineUserId,
   type DemoCandidate,
@@ -80,6 +80,10 @@ type SaiyoProApplicationRow = {
   location: string | null;
   income: string | null;
 };
+
+type FiveIntakeQuestion = 'age' | 'employment' | 'timing' | 'resume';
+
+type FiveIntakeAnswers = Partial<Record<FiveIntakeQuestion, string>>;
 
 type FriendCandidateRow = {
   id: string;
@@ -226,6 +230,7 @@ async function handleEvent(
 
     const friend = await upsertFriend(db, {
       lineUserId: userId,
+      lineAccountId,
       displayName: profile?.displayName ?? null,
       pictureUrl: profile?.pictureUrl ?? null,
       statusMessage: profile?.statusMessage ?? null,
@@ -293,6 +298,14 @@ async function handleEvent(
       : null;
     const runAccountScenarios =
       !referralRoute || referralRoute.run_account_friend_add_scenarios !== 0;
+
+    if (lineAccountId === 'five-rpo' && !referralRoute) {
+      const replyMsg = buildMessage('flex', buildFiveCandidateIntakeGreetingFlex());
+      await lineClient.replyMessage(event.replyToken, [replyMsg]);
+      await logFiveCandidateIntakeReply(db, friend.id, replyMsg, lineAccountId, 'five_candidate_intake_greeting');
+      await fireEvent(db, 'friend_add', { friendId: friend.id, eventData: { displayName: friend.display_name } }, lineAccessToken, lineAccountId);
+      return;
+    }
 
     // friend_add シナリオに登録（このアカウントのシナリオのみ）
     // Skip entirely when a referral link explicitly overrides (run_account_friend_add_scenarios=0).
@@ -420,7 +433,7 @@ async function handleEvent(
       event.source.type === 'user' ? event.source.userId : undefined;
     if (!userId) return;
 
-    await updateFriendFollowStatus(db, userId, false);
+    await updateFriendFollowStatus(db, userId, false, lineAccountId);
     return;
   }
 
@@ -464,6 +477,11 @@ async function handleEvent(
         .run();
     } catch (err) {
       console.error('Failed to log incoming postback', err);
+    }
+
+    if (lineAccountId === 'five-rpo' && postbackData.startsWith('five:intake:')) {
+      const handled = await handleFiveCandidateIntakePostback(db, lineClient, event.replyToken, friend, postbackData, lineAccountId, workerUrl, liffUrl);
+      if (handled) return;
     }
 
     if (lineAccountId === DEMO_CANDIDATE_LINE_ACCOUNT_ID && postbackData.startsWith('demo:application:')) {
@@ -539,11 +557,8 @@ async function handleEvent(
           ? '面談予定'
           : modeKey === 'hires'
             ? '面談予定'
-            : '新着応募者';
-      const companyAccount = await getDemoCompanyAccountForFriend(db, friend);
-      const replyContent = await buildDemoCompanyMenuReply(db, mode, null, companyAccount);
-      if (!replyContent) return;
-      const replyMsg = buildMessage('flex', replyContent);
+          : '新着応募者';
+      const replyMsg = buildMessage('text', buildSaiyoProCompanyMenuText(mode) ?? '現在、表示できる情報はありません。');
       await lineClient.replyMessage(event.replyToken, [replyMsg]);
       const { messageToLogPayload } = await import('../services/step-delivery.js');
       const payload = messageToLogPayload(replyMsg);
@@ -566,11 +581,7 @@ async function handleEvent(
           : modeKey === 'status'
             ? '応募状況'
             : 'チャット';
-      const candidate = resolveDemoCandidateByLineUserId(userId) ?? DEMO_CANDIDATES.yamada;
-      const replyContent = mode === '求人を見る'
-        ? await buildDemoCandidateCompanyCardsFlex(db, candidate)
-        : buildDemoCandidateSelfMenuFlex(candidate, mode);
-      const replyMsg = buildMessage('flex', replyContent);
+      const replyMsg = buildMessage('text', buildSaiyoProCandidateMenuText(mode));
       await lineClient.replyMessage(event.replyToken, [replyMsg]);
       const { messageToLogPayload } = await import('../services/step-delivery.js');
       const payload = messageToLogPayload(replyMsg);
@@ -723,13 +734,26 @@ async function handleEvent(
     }
 
     if (lineAccountId === DEMO_COMPANY_LINE_ACCOUNT_ID) {
-      const companyAccount = await getDemoCompanyAccountForFriend(db, friend);
-      const menuReply = await buildDemoCompanyMenuReply(db, normalizedText, activeDemoCandidate, companyAccount);
-      if (menuReply) {
-        if (normalizedText === '終了') {
-          await clearDemoReplySession(db, friend.id);
-        }
-        const replyMsg = buildMessage('flex', menuReply);
+      if (normalizedText === '求人管理') {
+        const replyMsg = buildMessage(
+          'flex',
+          buildSaiyoProCompanyJobManagementFlex(workerUrl ?? DEMO_WORKER_URL, lineAccountId, friend.id),
+        );
+        await lineClient.replyMessage(event.replyToken, [replyMsg]);
+        const { messageToLogPayload } = await import('../services/step-delivery.js');
+        const payload = messageToLogPayload(replyMsg);
+        await db
+          .prepare(
+            `INSERT INTO messages_log (id, friend_id, direction, message_type, content, broadcast_id, scenario_step_id, delivery_type, source, line_account_id, created_at)
+             VALUES (?, ?, 'outgoing', ?, ?, NULL, NULL, 'reply', 'saiyo_pro_company_jobs', ?, ?)`,
+          )
+          .bind(crypto.randomUUID(), friend.id, payload.messageType, payload.content, lineAccountId, jstNow())
+          .run();
+        return;
+      }
+      const menuReplyText = buildSaiyoProCompanyMenuText(normalizedText);
+      if (menuReplyText) {
+        const replyMsg = buildMessage('text', menuReplyText);
         await lineClient.replyMessage(event.replyToken, [replyMsg]);
         const { messageToLogPayload } = await import('../services/step-delivery.js');
         const payload = messageToLogPayload(replyMsg);
@@ -748,11 +772,9 @@ async function handleEvent(
       lineAccountId === DEMO_CANDIDATE_LINE_ACCOUNT_ID &&
       (normalizedText === 'チャット' || normalizedText === 'プロフィール' || normalizedText === '求人を見る' || normalizedText === '応募状況')
     ) {
-      const candidate = resolveDemoCandidateByLineUserId(userId) ?? DEMO_CANDIDATES.yamada;
-      const replyContent = normalizedText === '求人を見る'
-        ? await buildDemoCandidateCompanyCardsFlex(db, candidate)
-        : buildDemoCandidateSelfMenuFlex(candidate, normalizedText);
-      const replyMsg = buildMessage('flex', replyContent);
+      const replyMsg = normalizedText === '求人を見る'
+        ? buildMessage('flex', buildSaiyoProCandidateJobsFlex(workerUrl ?? DEMO_WORKER_URL, lineAccountId, friend.id))
+        : buildMessage('text', buildSaiyoProCandidateMenuText(normalizedText));
       await lineClient.replyMessage(event.replyToken, [replyMsg]);
       const { messageToLogPayload } = await import('../services/step-delivery.js');
       const payload = messageToLogPayload(replyMsg);
@@ -1030,7 +1052,7 @@ async function ensureFriendForLineUser(
   lineUserId: string,
   lineAccountId: string | null | undefined,
 ): Promise<Awaited<ReturnType<typeof upsertFriend>> | null> {
-  const existing = await getFriendByLineUserId(db, lineUserId);
+  const existing = await getFriendByLineUserId(db, lineUserId, lineAccountId);
   if (existing) {
     if (lineAccountId) {
       await db
@@ -1057,6 +1079,7 @@ async function ensureFriendForLineUser(
 
   const friend = await upsertFriend(db, {
     lineUserId,
+    lineAccountId,
     displayName: profile?.displayName ?? null,
     pictureUrl: profile?.pictureUrl ?? null,
     statusMessage: profile?.statusMessage ?? null,
@@ -1100,9 +1123,13 @@ async function updateFriendMetadata(
     .bind(friendId)
     .first<{ metadata: string | null }>();
   const current = parseFriendMetadata(row ?? {});
+  const next = { ...current, ...patch };
+  for (const [key, value] of Object.entries(next)) {
+    if (value === null) delete next[key];
+  }
   await db
     .prepare('UPDATE friends SET metadata = ?, updated_at = ? WHERE id = ?')
-    .bind(JSON.stringify({ ...current, ...patch }), jstNow(), friendId)
+    .bind(JSON.stringify(next), jstNow(), friendId)
     .run();
 }
 
@@ -1126,6 +1153,27 @@ async function handleSaiyoProApplicationPostback(
   if (!parsed) return false;
 
   const current = await getSaiyoProApplicationAnswers(db, friend);
+  const expectedQuestion = getNextSaiyoProApplicationQuestion(current);
+  if (expectedQuestion !== parsed.question) {
+    const replyMsg = buildMessage(
+      'text',
+      expectedQuestion
+        ? '回答は受け付け済みです。最新の質問カードから次の項目を選んでください。'
+        : '回答は受け付け済みです。追加の確認が必要な場合は、このLINEでご案内します。',
+    );
+    await lineClient.replyMessage(replyToken, [replyMsg]);
+    const { messageToLogPayload } = await import('../services/step-delivery.js');
+    const payload = messageToLogPayload(replyMsg);
+    await db
+      .prepare(
+        `INSERT INTO messages_log (id, friend_id, direction, message_type, content, broadcast_id, scenario_step_id, delivery_type, source, line_account_id, created_at)
+         VALUES (?, ?, 'outgoing', ?, ?, NULL, NULL, 'reply', 'saiyo_pro_application_stale_postback', ?, ?)`,
+      )
+      .bind(crypto.randomUUID(), friend.id, payload.messageType, payload.content, lineAccountId ?? null, jstNow())
+      .run();
+    return true;
+  }
+
   const answers = mergeSaiyoProApplicationAnswer(current, parsed.question, parsed.value);
   await upsertSaiyoProApplication(db, friend.id, lineAccountId, answers);
 
@@ -1147,6 +1195,426 @@ async function handleSaiyoProApplicationPostback(
     .bind(crypto.randomUUID(), friend.id, payload.messageType, payload.content, lineAccountId ?? null, jstNow())
     .run();
   return true;
+}
+
+async function handleFiveCandidateIntakePostback(
+  db: D1Database,
+  lineClient: LineClient,
+  replyToken: string,
+  friend: { id: string; metadata?: string | null },
+  postbackData: string,
+  lineAccountId: string | null | undefined,
+  workerUrl?: string,
+  liffUrl?: string,
+): Promise<boolean> {
+  if (postbackData === 'five:intake:start') {
+    await updateFriendMetadata(db, friend.id, {
+      five_candidate_intake: null,
+    });
+    const replyMsg = buildMessage('flex', buildFiveIntakeQuestionFlex('age'));
+    await lineClient.replyMessage(replyToken, [replyMsg]);
+    await logFiveCandidateIntakeReply(db, friend.id, replyMsg, lineAccountId, 'five_candidate_intake_start');
+    return true;
+  }
+
+  const parsed = parseFiveCandidateIntakePostback(postbackData);
+  if (!parsed) return false;
+
+  const current = getFiveCandidateIntakeAnswers(friend);
+  const expectedQuestion = getNextFiveCandidateIntakeQuestion(current);
+  if (!canAcceptFiveCandidateIntakeAnswer(current, parsed.question)) {
+    const replyMsg = expectedQuestion
+      ? buildMessage('flex', buildFiveIntakeQuestionFlex(expectedQuestion))
+      : await buildFiveCandidateIntakeTerminalMessage(db, lineAccountId, workerUrl, liffUrl, current);
+    await lineClient.replyMessage(replyToken, [replyMsg]);
+    await logFiveCandidateIntakeReply(db, friend.id, replyMsg, lineAccountId, 'five_candidate_intake_stale_postback');
+    return true;
+  }
+
+  const answers = mergeFiveCandidateIntakeAnswer(current, parsed.question, parsed.value);
+
+  await updateFriendMetadata(db, friend.id, {
+    five_candidate_intake: {
+      ...answers,
+      updatedAt: jstNow(),
+    },
+  });
+
+  const nextQuestion = getNextFiveCandidateIntakeQuestion(answers);
+  const replyMsg = nextQuestion
+    ? buildMessage('flex', buildFiveIntakeQuestionFlex(nextQuestion))
+    : await buildFiveCandidateIntakeTerminalMessage(db, lineAccountId, workerUrl, liffUrl, answers);
+  await lineClient.replyMessage(replyToken, [replyMsg]);
+  await logFiveCandidateIntakeReply(db, friend.id, replyMsg, lineAccountId, 'five_candidate_intake');
+
+  return true;
+}
+
+async function logFiveCandidateIntakeReply(
+  db: D1Database,
+  friendId: string,
+  replyMsg: ReturnType<typeof buildMessage>,
+  lineAccountId: string | null | undefined,
+  source: string,
+): Promise<void> {
+  const { messageToLogPayload } = await import('../services/step-delivery.js');
+  const payload = messageToLogPayload(replyMsg);
+  await db
+    .prepare(
+      `INSERT INTO messages_log (id, friend_id, direction, message_type, content, broadcast_id, scenario_step_id, delivery_type, source, line_account_id, created_at)
+       VALUES (?, ?, 'outgoing', ?, ?, NULL, NULL, 'reply', ?, ?, ?)`,
+    )
+    .bind(crypto.randomUUID(), friendId, payload.messageType, payload.content, source, lineAccountId ?? null, jstNow())
+    .run();
+}
+
+function parseFiveCandidateIntakePostback(postbackData: string): { question: FiveIntakeQuestion; value: string } | null {
+  const [, , question, value] = postbackData.split(':');
+  if (!isFiveIntakeQuestion(question) || !value) return null;
+  return { question, value };
+}
+
+function isFiveIntakeQuestion(value: string | undefined): value is FiveIntakeQuestion {
+  return value === 'age' || value === 'employment' || value === 'timing' || value === 'resume';
+}
+
+function getFiveCandidateIntakeAnswers(friend: { metadata?: string | null }): FiveIntakeAnswers {
+  const meta = parseFriendMetadata(friend);
+  const raw = meta.five_candidate_intake;
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
+  const record = raw as Record<string, unknown>;
+  const answers: FiveIntakeAnswers = {};
+  for (const question of FIVE_INTAKE_QUESTION_ORDER) {
+    if (typeof record[question] === 'string') answers[question] = record[question];
+  }
+  return answers;
+}
+
+function mergeFiveCandidateIntakeAnswer(
+  current: FiveIntakeAnswers,
+  question: FiveIntakeQuestion,
+  value: string,
+): FiveIntakeAnswers {
+  const answers: FiveIntakeAnswers = {};
+  for (const orderedQuestion of FIVE_INTAKE_QUESTION_ORDER) {
+    if (orderedQuestion === question) {
+      answers[orderedQuestion] = value;
+      break;
+    }
+    if (current[orderedQuestion]) answers[orderedQuestion] = current[orderedQuestion];
+  }
+  return answers;
+}
+
+const FIVE_INTAKE_QUESTION_ORDER: FiveIntakeQuestion[] = ['age', 'employment', 'timing', 'resume'];
+
+function getNextFiveCandidateIntakeQuestion(answers: FiveIntakeAnswers): FiveIntakeQuestion | null {
+  return FIVE_INTAKE_QUESTION_ORDER.find((question) => !answers[question]) ?? null;
+}
+
+function canAcceptFiveCandidateIntakeAnswer(current: FiveIntakeAnswers, question: FiveIntakeQuestion): boolean {
+  const expectedQuestion = getNextFiveCandidateIntakeQuestion(current);
+  if (!expectedQuestion) return true;
+  return FIVE_INTAKE_QUESTION_ORDER.indexOf(question) <= FIVE_INTAKE_QUESTION_ORDER.indexOf(expectedQuestion);
+}
+
+async function buildFiveCandidateIntakeTerminalMessage(
+  db: D1Database,
+  lineAccountId: string | null | undefined,
+  workerUrl: string | undefined,
+  liffUrl: string | undefined,
+  answers: FiveIntakeAnswers,
+): Promise<ReturnType<typeof buildMessage>> {
+  if (answers.resume === 'has') {
+    return buildMessage('flex', buildFiveResumeSubmissionFlex(await buildFiveCandidateIntakeFormUrl(db, lineAccountId, workerUrl, liffUrl, '提出できる', answers)));
+  }
+  return buildMessage('flex', buildFiveResumeCreationFlex(await buildFiveCandidateIntakeFormUrl(db, lineAccountId, workerUrl, liffUrl, 'まだ持っていない', answers)));
+}
+
+async function buildFiveCandidateIntakeFormUrl(
+  db: D1Database,
+  lineAccountId: string | null | undefined,
+  workerUrl: string | undefined,
+  liffUrl: string | undefined,
+  resumeStatus: '提出できる' | 'まだ持っていない',
+  answers: FiveIntakeAnswers = {},
+): Promise<string> {
+  const params = new URLSearchParams({
+    page: 'form',
+    id: 'form-saiyo-pro-candidate-intake',
+    ref: 'five-rpo-rejection',
+    resume_status: resumeStatus,
+  });
+  const employment = mapFiveIntakeValue('employment', answers.employment);
+  const timing = mapFiveIntakeValue('timing', answers.timing);
+  if (employment) params.set('employment_type', employment);
+  if (timing) params.set('job_change_timing', timing);
+
+  let liffId: string | null = null;
+  if (lineAccountId) {
+    const account = await db
+      .prepare('SELECT liff_id FROM line_accounts WHERE id = ? LIMIT 1')
+      .bind(lineAccountId)
+      .first<{ liff_id: string | null }>()
+      .catch(() => null);
+    liffId = account?.liff_id ?? null;
+  }
+  if (!liffId && liffUrl) {
+    const match = liffUrl.match(/liff\.line\.me\/([0-9]+-[A-Za-z0-9]+)/);
+    liffId = match?.[1] ?? null;
+  }
+
+  if (liffId) {
+    params.set('liffId', liffId);
+    return `https://liff.line.me/${liffId}?${params.toString()}`;
+  }
+  return `${(workerUrl ?? DEMO_WORKER_URL).replace(/\/+$/, '')}?${params.toString()}`;
+}
+
+function mapFiveIntakeValue(question: FiveIntakeQuestion, value: string | undefined): string | null {
+  if (!value) return null;
+  const maps: Record<FiveIntakeQuestion, Record<string, string>> = {
+    age: {
+      '18_24': '18〜24歳',
+      '25_34': '25〜34歳',
+      '35_44': '35〜44歳',
+      '45_plus': '45歳以上',
+    },
+    employment: {
+      full_time: '正社員',
+      contract: '契約社員',
+      part_time: 'アルバイト',
+      undecided: 'まだ決めていない',
+    },
+    timing: {
+      soon: '早めに進めたい',
+      after_conditions: '条件を確認してから進めたい',
+      explanation_first: 'まず説明を聞きたい',
+    },
+    resume: {
+      has: '提出できる',
+      create: 'まだ持っていない',
+    },
+  };
+  return maps[question][value] ?? null;
+}
+
+function buildFiveIntakeQuestionFlex(question: FiveIntakeQuestion): string {
+  const configs: Record<FiveIntakeQuestion, {
+    title: string;
+    description: string;
+    options: Array<{ label: string; value: string; primary?: boolean }>;
+  }> = {
+    age: {
+      title: '年齢を教えてください',
+      description: 'ご応募ありがとうございます。選考に必要な確認をLINE上で進めます。まず年齢を選択してください。',
+      options: [
+        { label: '18〜24歳', value: '18_24', primary: true },
+        { label: '25〜34歳', value: '25_34' },
+        { label: '35〜44歳', value: '35_44' },
+        { label: '45歳以上', value: '45_plus' },
+      ],
+    },
+    employment: {
+      title: '希望する働き方は？',
+      description: '現時点の希望に近いものを選んでください。あとから変更できます。',
+      options: [
+        { label: '正社員', value: 'full_time', primary: true },
+        { label: '契約社員', value: 'contract' },
+        { label: 'アルバイト', value: 'part_time' },
+        { label: 'まだ決めていない', value: 'undecided' },
+      ],
+    },
+    timing: {
+      title: '選考への希望は？',
+      description: '担当者が次に案内する内容を決めるための確認です。',
+      options: [
+        { label: '早めに進めたい', value: 'soon', primary: true },
+        { label: '条件を確認してから', value: 'after_conditions' },
+        { label: 'まず説明を聞きたい', value: 'explanation_first' },
+      ],
+    },
+    resume: {
+      title: '職務経歴書を作成しますか？',
+      description: 'すでに持っている方は提出へ、持っていない方は入力内容をもとに作成する流れへ進みます。',
+      options: [
+        { label: '持っているので提出する', value: 'has', primary: true },
+        { label: '職務経歴書を作成したい', value: 'create' },
+      ],
+    },
+  };
+  const config = configs[question];
+  return JSON.stringify({
+    type: 'bubble',
+    size: 'mega',
+    body: {
+      type: 'box',
+      layout: 'vertical',
+      spacing: 'md',
+      paddingAll: '18px',
+      contents: [
+        { type: 'text', text: '選考情報の確認', weight: 'bold', size: 'xs', color: '#047857', wrap: true },
+        { type: 'text', text: config.title, weight: 'bold', size: 'lg', color: '#0F172A', wrap: true },
+        { type: 'text', text: config.description, size: 'sm', color: '#475569', wrap: true },
+      ],
+    },
+    footer: {
+      type: 'box',
+      layout: 'vertical',
+      spacing: 'sm',
+      contents: config.options.map((option) => ({
+        type: 'button',
+        style: option.primary ? 'primary' : 'secondary',
+        color: option.primary ? '#06C755' : undefined,
+        action: {
+          type: 'postback',
+          label: option.label,
+          data: `five:intake:${question}:${option.value}`,
+          displayText: option.label,
+        },
+      })),
+    },
+  });
+}
+
+function buildFiveCandidateIntakeGreetingFlex(): string {
+  return JSON.stringify({
+    type: 'bubble',
+    size: 'mega',
+    body: {
+      type: 'box',
+      layout: 'vertical',
+      spacing: 'lg',
+      paddingAll: '20px',
+      backgroundColor: '#F8FAFC',
+      contents: [
+        { type: 'text', text: 'FIVE 選考エントリー', size: 'xs', weight: 'bold', color: '#16A34A', wrap: true },
+        { type: 'text', text: 'ご登録ありがとうございます', weight: 'bold', size: 'xl', color: '#0F172A', wrap: true },
+        { type: 'text', text: '選考を進めるために必要な確認を、このLINE上で順番に進めます。まずは選択式の質問から始めます。', size: 'sm', color: '#475569', wrap: true },
+        {
+          type: 'box',
+          layout: 'vertical',
+          spacing: 'sm',
+          margin: 'lg',
+          paddingAll: '14px',
+          backgroundColor: '#FFFFFF',
+          borderColor: '#E2E8F0',
+          borderWidth: '1px',
+          cornerRadius: '12px',
+          contents: [
+            {
+              type: 'box',
+              layout: 'baseline',
+              spacing: 'sm',
+              contents: [
+                { type: 'text', text: '1', flex: 0, size: 'xs', weight: 'bold', color: '#16A34A' },
+                { type: 'text', text: '年齢・希望条件の確認', size: 'sm', color: '#0F172A', wrap: true },
+              ],
+            },
+            { type: 'separator', color: '#E2E8F0' },
+            {
+              type: 'box',
+              layout: 'baseline',
+              spacing: 'sm',
+              contents: [
+                { type: 'text', text: '2', flex: 0, size: 'xs', weight: 'bold', color: '#16A34A' },
+                { type: 'text', text: '職務経歴書の提出または作成', size: 'sm', color: '#0F172A', wrap: true },
+              ],
+            },
+            { type: 'separator', color: '#E2E8F0' },
+            {
+              type: 'box',
+              layout: 'baseline',
+              spacing: 'sm',
+              contents: [
+                { type: 'text', text: '3', flex: 0, size: 'xs', weight: 'bold', color: '#16A34A' },
+                { type: 'text', text: '確認後、次のご案内をお送りします', size: 'sm', color: '#0F172A', wrap: true },
+              ],
+            },
+          ],
+        },
+        { type: 'text', text: '入力が必要なところだけ、専用ページを開いてご回答いただきます。', size: 'xs', color: '#64748B', wrap: true },
+      ],
+    },
+    footer: {
+      type: 'box',
+      layout: 'vertical',
+      spacing: 'sm',
+      contents: [
+        {
+          type: 'button',
+          style: 'primary',
+          color: '#06C755',
+          action: {
+            type: 'postback',
+            label: '応募を開始する',
+            data: 'five:intake:start',
+            displayText: '応募を開始する',
+          },
+        },
+      ],
+    },
+  });
+}
+
+function buildFiveResumeSubmissionFlex(formUrl: string): string {
+  return JSON.stringify({
+    type: 'bubble',
+    size: 'mega',
+    body: {
+      type: 'box',
+      layout: 'vertical',
+      spacing: 'md',
+      paddingAll: '18px',
+      contents: [
+        { type: 'text', text: '職務経歴書の提出', size: 'lg', weight: 'bold', color: '#0F172A', wrap: true },
+        { type: 'text', text: 'こちらのリンクから、職務経歴書の写真・PDF・リンクを提出してください。', size: 'sm', color: '#475569', wrap: true },
+      ],
+    },
+    footer: {
+      type: 'box',
+      layout: 'vertical',
+      spacing: 'sm',
+      contents: [
+        {
+          type: 'button',
+          style: 'primary',
+          color: '#06C755',
+          action: { type: 'uri', label: '職務経歴書を提出する', uri: formUrl },
+        },
+      ],
+    },
+  });
+}
+
+function buildFiveResumeCreationFlex(formUrl: string): string {
+  return JSON.stringify({
+    type: 'bubble',
+    size: 'mega',
+    body: {
+      type: 'box',
+      layout: 'vertical',
+      spacing: 'md',
+      paddingAll: '18px',
+      contents: [
+        { type: 'text', text: '必要事項の入力', size: 'lg', weight: 'bold', color: '#0F172A', wrap: true },
+        { type: 'text', text: '職務経歴書がなくても大丈夫です。これまでの経験や得意なことを入力して、選考に必要な確認を進めます。', size: 'sm', color: '#475569', wrap: true },
+      ],
+    },
+    footer: {
+      type: 'box',
+      layout: 'vertical',
+      spacing: 'sm',
+      contents: [
+        {
+          type: 'button',
+          style: 'primary',
+          color: '#06C755',
+          action: { type: 'uri', label: '入力ページを開く', uri: formUrl },
+        },
+      ],
+    },
+  });
 }
 
 function parseSaiyoProApplicationPostback(postbackData: string): { question: SaiyoProApplicationQuestion; value: string } | null {
@@ -1279,7 +1747,7 @@ async function upsertSaiyoProApplication(
       answers.location ?? null,
       answers.income ?? null,
       eligibilityStatus,
-      eligibilityStatus === 'eligible' ? DEMO_TIMEREX_URL : null,
+      null,
       jstNow(),
       jstNow(),
     )
@@ -1309,11 +1777,11 @@ function buildSaiyoProApplicationResultText(answers: SaiyoProApplicationAnswers)
     return [
       'ご回答ありがとうございます。',
       '',
-      '採用PROから求人案内が届きました。',
-      '内容が合いそうな方には、次のステップとして面談日程をご案内しています。',
+      '条件確認が完了しました。',
+      'いただいた内容を確認しています。',
       '',
-      '以下のURLからご都合のよい日時を選んでください。',
-      DEMO_TIMEREX_URL,
+      'ご案内できる求人の準備ができ次第、このLINEでお知らせします。',
+      'しばらくお待ちください。',
       '',
       '求人に関する個別のやり取りは、案内された専用チャット画面で行います。',
     ].join('\n');
@@ -1333,49 +1801,44 @@ function buildSaiyoProApplicationResultFlex(): string {
   return JSON.stringify({
     type: 'bubble',
     size: 'mega',
-    hero: {
-      type: 'image',
-      url: SAIYO_PRO_APPLICATION_COMPLETE_IMAGE_URL,
-      size: 'full',
-      aspectRatio: '3:2',
-      aspectMode: 'cover',
-    },
     body: {
       type: 'box',
       layout: 'vertical',
-      paddingAll: '18px',
-      spacing: 'md',
+      paddingAll: '20px',
+      spacing: 'lg',
       contents: [
-        { type: 'text', text: '採用PROから求人案内が届きました', size: 'xl', weight: 'bold', color: SAIYO_PRO_BRAND_NAVY, wrap: true },
-        { type: 'text', text: '内容が合いそうな方には、次のステップとして面談日程をご案内しています。', size: 'sm', color: SAIYO_PRO_BRAND_MUTED, wrap: true },
+        {
+          type: 'box',
+          layout: 'vertical',
+          alignItems: 'center',
+          spacing: 'sm',
+          contents: [
+            {
+              type: 'box',
+              layout: 'vertical',
+              width: '48px',
+              height: '48px',
+              cornerRadius: '24px',
+              backgroundColor: SAIYO_PRO_BRAND_PRIMARY,
+              alignItems: 'center',
+              justifyContent: 'center',
+              contents: [{ type: 'text', text: 'OK', size: 'sm', weight: 'bold', color: '#FFFFFF' }],
+            },
+            { type: 'text', text: '条件確認が完了しました', size: 'xl', weight: 'bold', color: SAIYO_PRO_BRAND_NAVY, wrap: true, align: 'center' },
+            { type: 'text', text: 'ご回答ありがとうございます。いただいた内容を確認しています。', size: 'sm', color: SAIYO_PRO_BRAND_MUTED, wrap: true, align: 'center' },
+          ],
+        },
         {
           type: 'box',
           layout: 'vertical',
           backgroundColor: SAIYO_PRO_BRAND_SOFT_BG,
           cornerRadius: 'md',
           paddingAll: '12px',
+          spacing: 'xs',
           contents: [
-            { type: 'text', text: '求人案内', size: 'xs', color: SAIYO_PRO_BRAND_PRIMARY, weight: 'bold' },
-            { type: 'text', text: '採用PRO / 正社員求人', size: 'sm', color: SAIYO_PRO_BRAND_NAVY, wrap: true, margin: 'sm' },
+            { type: 'text', text: '次のご案内', size: 'xs', color: SAIYO_PRO_BRAND_PRIMARY, weight: 'bold' },
+            { type: 'text', text: '準備ができ次第、このLINEでお知らせします。しばらくお待ちください。', size: 'sm', color: SAIYO_PRO_BRAND_NAVY, wrap: true },
           ],
-        },
-      ],
-    },
-    footer: {
-      type: 'box',
-      layout: 'vertical',
-      paddingAll: '12px',
-      contents: [
-        {
-          type: 'button',
-          style: 'primary',
-          color: SAIYO_PRO_BRAND_PRIMARY,
-          height: 'sm',
-          action: {
-            type: 'uri',
-            label: '面談日程を選ぶ',
-            uri: DEMO_TIMEREX_URL,
-          },
         },
       ],
     },
@@ -2318,24 +2781,7 @@ async function buildDemoCandidateCompanyCardsFlex(db: D1Database, candidate: Dem
 
 function buildDemoWelcomeText(lineAccountId: string | null | undefined): string | null {
   if (lineAccountId === DEMO_COMPANY_LINE_ACCOUNT_ID) {
-    return [
-      'こんにちは！！採用PRO 企業向けです✨',
-      '',
-      'まずは「アカウント連携」から会社情報をつなげてください！',
-      '連携できたら、応募者対応と求人出稿がこのLINEから使えます👇',
-      '',
-      '🔵 新着応募者',
-      '新しく反応があった求職者を確認できます！',
-      '',
-      '🟢 未対応チャット',
-      '返信が必要な相手をすぐ確認できます！',
-      '',
-      '🟣 求人管理',
-      '求人を作って、求職者LINEへ出稿できます！',
-      '',
-      '⚫️ アカウント連携',
-      '採用PROのアカウントとLINEをつなぎます！',
-    ].join('\n');
+    return null;
   }
   if (lineAccountId === DEMO_CANDIDATE_LINE_ACCOUNT_ID) {
     return [
@@ -2387,6 +2833,7 @@ function buildDemoApplicationQuestionFlex(question: SaiyoProApplicationQuestion)
           type: 'postback',
           label: option.label,
           data: `demo:application:${question}:${option.value}`,
+          displayText: option.label,
         },
       })),
     },
@@ -2403,6 +2850,11 @@ function buildDemoApplicationStartFlex(): string {
       size: 'full',
       aspectRatio: '3:2',
       aspectMode: 'cover',
+      action: {
+        type: 'message',
+        label: '求人案内の確認を始める',
+        text: '求人案内の確認を始める',
+      },
     },
     body: {
       type: 'box',
@@ -2425,25 +2877,120 @@ function buildDemoApplicationStartFlex(): string {
         },
       ],
     },
-    footer: {
+  });
+}
+
+function buildSaiyoProCompanyJobManagementFlex(workerUrl: string, accountId: string, friendId: string): string {
+  const uri = buildJobManagementUrl(workerUrl, accountId, friendId);
+  return JSON.stringify({
+    type: 'bubble',
+    size: 'mega',
+    header: {
       type: 'box',
       layout: 'vertical',
-      paddingAll: '12px',
+      paddingAll: '18px',
+      backgroundColor: SAIYO_PRO_BRAND_PRIMARY,
       contents: [
+        { type: 'text', text: '求人管理', size: 'xl', weight: 'bold', color: '#FFFFFF', wrap: true },
+        { type: 'text', text: '求人の作成・編集・応募者確認ができます。', size: 'sm', color: '#E6FFFB', wrap: true, margin: 'sm' },
+      ],
+    },
+    body: {
+      type: 'box',
+      layout: 'vertical',
+      paddingAll: '18px',
+      spacing: 'md',
+      contents: [
+        { type: 'text', text: 'まずは公開する求人情報を入力してください。保存すると求職者側の「求人を見る」に表示されます。', size: 'sm', color: SAIYO_PRO_BRAND_MUTED, wrap: true },
         {
-          type: 'button',
-          style: 'primary',
-          color: SAIYO_PRO_BRAND_PRIMARY,
-          height: 'sm',
-          action: {
-            type: 'message',
-            label: '求人案内の確認を始める',
-            text: '求人案内の確認を始める',
-          },
+          type: 'box',
+          layout: 'vertical',
+          backgroundColor: SAIYO_PRO_BRAND_SOFT_BG,
+          cornerRadius: 'md',
+          paddingAll: '12px',
+          contents: [
+            { type: 'text', text: '登録できる内容', size: 'xs', weight: 'bold', color: SAIYO_PRO_BRAND_PRIMARY },
+            { type: 'text', text: '求人名 / 給与 / 勤務地 / 勤務時間 / 仕事内容 / バナーURL', size: 'sm', color: SAIYO_PRO_BRAND_NAVY, wrap: true, margin: 'sm' },
+          ],
         },
       ],
     },
+    footer: {
+      type: 'box',
+      layout: 'vertical',
+      paddingAll: '16px',
+      contents: [
+        { type: 'button', style: 'primary', color: SAIYO_PRO_BRAND_PRIMARY, action: { type: 'uri', label: '求人管理を開く', uri } },
+      ],
+    },
   });
+}
+
+function buildSaiyoProCandidateJobsFlex(workerUrl: string, accountId: string, friendId: string): string {
+  const uri = buildCandidateJobsUrl(workerUrl, accountId, friendId);
+  return JSON.stringify({
+    type: 'bubble',
+    size: 'mega',
+    header: {
+      type: 'box',
+      layout: 'vertical',
+      paddingAll: '18px',
+      backgroundColor: SAIYO_PRO_BRAND_PRIMARY,
+      contents: [
+        { type: 'text', text: '求人を見る', size: 'xl', weight: 'bold', color: '#FFFFFF', wrap: true },
+        { type: 'text', text: '公開中の求人を確認できます。', size: 'sm', color: '#E6FFFB', wrap: true, margin: 'sm' },
+      ],
+    },
+    body: {
+      type: 'box',
+      layout: 'vertical',
+      paddingAll: '18px',
+      spacing: 'md',
+      contents: [
+        { type: 'text', text: '気になる求人があれば応募できます。応募後は担当者からの連絡をお待ちください。', size: 'sm', color: SAIYO_PRO_BRAND_MUTED, wrap: true },
+      ],
+    },
+    footer: {
+      type: 'box',
+      layout: 'vertical',
+      paddingAll: '16px',
+      contents: [
+        { type: 'button', style: 'primary', color: SAIYO_PRO_BRAND_PRIMARY, action: { type: 'uri', label: '求人一覧を開く', uri } },
+      ],
+    },
+  });
+}
+
+function buildSaiyoProCandidateMenuText(mode: string): string {
+  if (mode === '求人を見る') {
+    return '求人案内を受け取るには、まず条件確認をお願いします。「求人案内の確認を始める」と送ると開始できます。';
+  }
+  if (mode === '応募状況') {
+    return '現在、応募中の求人はありません。求人案内をご希望の場合は「求人を見る」から条件確認を進めてください。';
+  }
+  if (mode === 'チャット') {
+    return '企業とのチャットは、応募後に担当者とのやり取りが始まると利用できます。';
+  }
+  if (mode === 'プロフィール') {
+    return 'プロフィール情報は、求人案内の条件確認で登録・更新できます。';
+  }
+  return '現在このメニューは準備中です。';
+}
+
+function buildSaiyoProCompanyMenuText(mode: string): string | null {
+  if (mode === '新着応募者') {
+    return '現在、新着応募者はありません。求人を公開すると、応募者はこちらに表示されます。';
+  }
+  if (mode === '未対応チャット') {
+    return '現在、未対応チャットはありません。応募者から連絡が届くとこちらで確認できます。';
+  }
+  if (mode === '求人管理') {
+    return '求人管理は管理画面から設定できます。求人情報の作成・編集が必要な場合は管理画面を開いてください。';
+  }
+  if (mode === 'アカウント設定') {
+    return 'アカウント情報や通知設定は管理画面から確認できます。';
+  }
+  return null;
 }
 
 function getSaiyoProApplicationQuestionConfig(question: SaiyoProApplicationQuestion): {
@@ -2585,9 +3132,9 @@ function buildDemoCandidateMatchPromptFlex(candidate: DemoCandidate): string {
           color: '#2563EB',
           height: 'sm',
           action: {
-            type: 'postback',
+            type: 'message',
             label: '求人を見る',
-            data: 'demo:candidate-menu:jobs-card',
+            text: '求人案内の確認を始める',
           },
         },
       ],
@@ -2775,4 +3322,4 @@ function extractDemoUrls(body: string): string[] {
   return urls;
 }
 
-export { webhook, buildDemoApplicationStartFlex, buildDemoApplicationQuestionFlex, buildSaiyoProApplicationResultFlex, buildDemoCandidateJobsLinkFlex, buildDemoCandidateListFlex, buildDemoCandidateSelfMenuFlex, buildDemoCandidateCompanyCardsFlex, buildDemoCompanyAccountFromProfile, buildDemoCompanyMenuReply, buildDemoWelcomeText };
+export { webhook, buildDemoApplicationStartFlex, buildDemoApplicationQuestionFlex, buildSaiyoProApplicationResultFlex, buildDemoCandidateJobsLinkFlex, buildDemoCandidateListFlex, buildDemoCandidateSelfMenuFlex, buildDemoCandidateCompanyCardsFlex, buildDemoCompanyAccountFromProfile, buildDemoCompanyMenuReply, buildDemoWelcomeText, buildSaiyoProCandidateMenuText, buildSaiyoProCompanyMenuText, buildFiveIntakeQuestionFlex, buildFiveResumeSubmissionFlex, buildFiveResumeCreationFlex, canAcceptFiveCandidateIntakeAnswer, mergeFiveCandidateIntakeAnswer, handleSaiyoProApplicationPostback };

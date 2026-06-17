@@ -9,6 +9,7 @@ import {
   recordRefTracking,
   addTagToFriend,
   getLineAccountByChannelId,
+  getLineAccountByLiffId,
   getLineAccountById,
   getLineAccounts,
   getTrafficPoolBySlug,
@@ -415,7 +416,7 @@ liffRoutes.get('/auth/line', async (c) => {
   // can verify against the correct gate via the correct X Harness instance.
   // Without these, the form falls back to the gateId baked into the form's
   // onSubmitWebhookUrl (which is stale when a form is reused across campaigns).
-  const state = JSON.stringify({ ref, redirect, form: formId, gate: gateParam, xh: xhParam2, gclid, fbclid, twclid, ttclid, utmSource, utmMedium, utmCampaign, account: accountParam || poolAccount, uid: uidParam, ig: igParam });
+  const state = JSON.stringify({ ref, redirect, form: formId, gate: gateParam, xh: xhParam2, gclid, fbclid, twclid, ttclid, utmSource, utmMedium, utmCampaign, account: accountParam || poolAccount, liffId: liffIdMatch?.[1] ?? '', uid: uidParam, ig: igParam });
   const encodedState = btoa(state);
   const loginUrl = new URL('https://access.line.me/oauth2/v2.1/authorize');
   loginUrl.searchParams.set('response_type', 'code');
@@ -477,7 +478,7 @@ liffRoutes.get('/auth/line', async (c) => {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>LINE で開く</title>
+  <title>FIVE 選考エントリー</title>
   <style>
     *{margin:0;padding:0;box-sizing:border-box}
     body{font-family:'Hiragino Sans','Helvetica Neue',system-ui,sans-serif;background:#f5f7f5;display:flex;justify-content:center;align-items:center;min-height:100vh}
@@ -496,12 +497,12 @@ liffRoutes.get('/auth/line', async (c) => {
     <div class="line-icon">
       <svg viewBox="0 0 48 48" fill="none"><rect width="48" height="48" rx="12" fill="#06C755"/><path d="M24 12C17.37 12 12 16.58 12 22.2c0 3.54 2.35 6.65 5.86 8.47-.2.74-.76 2.75-.87 3.17-.14.55.2.54.42.39.18-.12 2.84-1.88 4-2.65.84.13 1.7.22 2.59.22 6.63 0 12-4.58 12-10.2S30.63 12 24 12z" fill="#fff"/></svg>
     </div>
-    <p class="msg">スマートフォンで QR コードを読み取ってください</p>
+    <p class="msg">FIVE 選考エントリーを開始します<br>スマートフォンで QR コードを読み取ってください</p>
     <div class="qr">
       <img src="/api/qr?size=240x240&data=${encodeURIComponent(qrUrl)}" alt="QR Code">
     </div>
     <p class="hint">LINE アプリのカメラまたは<br>スマートフォンのカメラで読み取れます</p>
-    <p class="footer">友だち追加で全機能を無料体験できます</p>
+    <p class="footer">LINEで選考に必要な確認を進めます</p>
   </div>
 </body>
 </html>`);
@@ -533,6 +534,7 @@ liffRoutes.get('/auth/oauth', async (c) => {
   const accountParam = c.req.query('account') || '';
   const uidParam = c.req.query('uid') || '';
   const igParam = c.req.query('ig') || '';
+  const liffIdParam = c.req.query('liffId') || '';
   let poolAccount = '';
   const baseUrl = new URL(c.req.url).origin;
 
@@ -569,6 +571,7 @@ liffRoutes.get('/auth/oauth', async (c) => {
     gclid, fbclid, twclid, ttclid,
     utmSource, utmMedium, utmCampaign,
     account: accountParam || poolAccount, uid: uidParam, ig: igParam,
+    liffId: liffIdParam,
   });
   const encodedState = btoa(state);
   const loginUrl = new URL('https://access.line.me/oauth2/v2.1/authorize');
@@ -606,6 +609,7 @@ liffRoutes.get('/auth/callback', async (c) => {
   let utmMedium = '';
   let utmCampaign = '';
   let accountParam = '';
+  let liffIdParam = '';
   let uidParam = '';
   let igParam = '';
   try {
@@ -623,6 +627,7 @@ liffRoutes.get('/auth/callback', async (c) => {
     utmMedium = parsed.utmMedium || '';
     utmCampaign = parsed.utmCampaign || '';
     accountParam = parsed.account || '';
+    liffIdParam = parsed.liffId || '';
     uidParam = parsed.uid || '';
     igParam = parsed.ig || '';
   } catch {
@@ -640,8 +645,14 @@ liffRoutes.get('/auth/callback', async (c) => {
     // Multi-account: resolve LINE Login credentials from DB
     let loginChannelId = c.env.LINE_LOGIN_CHANNEL_ID;
     let loginChannelSecret = c.env.LINE_LOGIN_CHANNEL_SECRET;
-    if (accountParam) {
-      const account = await getLineAccountByChannelId(c.env.DB, accountParam);
+    let resolvedAccount = accountParam
+      ? await getLineAccountByChannelId(c.env.DB, accountParam)
+      : null;
+    if (!resolvedAccount && liffIdParam) {
+      resolvedAccount = await getLineAccountByLiffId(c.env.DB, liffIdParam);
+    }
+    if (resolvedAccount) {
+      const account = resolvedAccount;
       if (account?.login_channel_id && account?.login_channel_secret) {
         loginChannelId = account.login_channel_id;
         loginChannelSecret = account.login_channel_secret;
@@ -717,6 +728,7 @@ liffRoutes.get('/auth/callback', async (c) => {
     // Upsert friend (may not exist yet if webhook hasn't fired)
     const friend = await upsertFriend(db, {
       lineUserId,
+      lineAccountId: resolvedAccount?.id ?? null,
       displayName,
       pictureUrl,
       statusMessage: null,
@@ -971,6 +983,7 @@ liffRoutes.get('/auth/callback', async (c) => {
           const account = await getAcctById(db, friend.line_account_id);
           if (account?.channel_access_token) accessToken = account.channel_access_token;
           if (account?.liff_id) {
+            formQuery.set('liffId', account.liff_id);
             formLiffUrl = `https://liff.line.me/${account.liff_id}?${formQuery.toString()}`;
           }
         }
@@ -978,6 +991,7 @@ liffRoutes.get('/auth/callback', async (c) => {
           const envLiffUrl = c.env.LIFF_URL || '';
           const envLiffIdMatch = envLiffUrl.match(/liff\.line\.me\/([0-9]+-[A-Za-z0-9]+)/);
           if (envLiffIdMatch) {
+            formQuery.set('liffId', envLiffIdMatch[1]);
             formLiffUrl = `https://liff.line.me/${envLiffIdMatch[1]}?${formQuery.toString()}`;
           }
         }
@@ -1014,8 +1028,12 @@ liffRoutes.get('/auth/callback', async (c) => {
     // Redirect to the correct bot's chat after auth
     // Find the LINE account by: account param, friend's account, or login channel ID
     let redirectAccount: Record<string, string> | null = null;
-    if (accountParam) {
+    if (resolvedAccount) {
+      redirectAccount = resolvedAccount as unknown as Record<string, string>;
+    } else if (accountParam) {
       redirectAccount = await getLineAccountByChannelId(db, accountParam) as Record<string, string> | null;
+    } else if (liffIdParam) {
+      redirectAccount = await getLineAccountByLiffId(db, liffIdParam) as Record<string, string> | null;
     }
     if (!redirectAccount) {
       // Find account by login_channel_id used in this OAuth flow
@@ -1489,7 +1507,7 @@ function authLandingPage(liffUrl: string, oauthUrl: string): string {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>LINE で開く</title>
+  <title>FIVE 選考エントリー</title>
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { font-family: 'Hiragino Sans', system-ui, sans-serif; background: #06C755; display: flex; justify-content: center; align-items: center; min-height: 100vh; }
@@ -1508,8 +1526,8 @@ function authLandingPage(liffUrl: string, oauthUrl: string): string {
 <body>
   <div class="card" id="card">
     <div class="line-icon">💬</div>
-    <h2>LINEで開く</h2>
-    <p class="sub">LINEアプリが起動します</p>
+    <h2>FIVE 選考エントリー</h2>
+    <p class="sub">LINEアプリで選考確認を開始します</p>
     <a href="${escapeHtml(lineSchemeUrl)}" class="btn btn-line" id="openBtn">LINEアプリで開く</a>
     <a href="${escapeHtml(oauthUrl)}" class="btn btn-web" id="pcBtn">PCの方・LINEが開かない方</a>
     <p class="loading hidden" id="loading">LINEアプリを起動中...</p>
@@ -1778,6 +1796,7 @@ liffRoutes.post('/api/liff/send-form-link', async (c) => {
       const account = await getLineAccountById(db, (friend as any).line_account_id);
       if (account?.channel_access_token) accessToken = account.channel_access_token;
       if (account?.liff_id) {
+        formQuery.set('liffId', account.liff_id);
         formLiffUrl = `https://liff.line.me/${account.liff_id}?${formQuery.toString()}`;
       }
     }
@@ -1786,6 +1805,7 @@ liffRoutes.post('/api/liff/send-form-link', async (c) => {
       const liffUrl = c.env.LIFF_URL || '';
       const liffIdMatch = liffUrl.match(/liff\.line\.me\/([0-9]+-[A-Za-z0-9]+)/);
       if (liffIdMatch) {
+        formQuery.set('liffId', liffIdMatch[1]);
         formLiffUrl = `https://liff.line.me/${liffIdMatch[1]}?${formQuery.toString()}`;
       }
     }
@@ -1810,6 +1830,19 @@ liffRoutes.post('/api/liff/send-form-link', async (c) => {
 
     const lineClient = new LineClient(accessToken);
     await lineClient.pushMessage(lineUserId, [introMessage as any]);
+    await db.prepare(
+      `INSERT INTO messages_log
+        (id, friend_id, direction, message_type, content, broadcast_id, scenario_step_id, delivery_type, source, template_id_at_send, line_account_id, created_at)
+       VALUES (?, ?, 'outgoing', ?, ?, NULL, NULL, 'push', 'liff_form_link', ?, ?, ?)`,
+    ).bind(
+      crypto.randomUUID(),
+      friend.id,
+      introMessage.type,
+      introTemplate?.name ?? 'フォーム案内',
+      introTemplate?.id ?? null,
+      (friend as any).line_account_id ?? null,
+      jstNow(),
+    ).run();
 
     return c.json({ success: true });
   } catch (err) {

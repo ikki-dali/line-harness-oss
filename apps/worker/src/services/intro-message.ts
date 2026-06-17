@@ -10,30 +10,29 @@ export type IntroMessage =
 
 /**
  * Default Flex sent when no intro template is configured.
- * Mirrors the previous hardcoded Flex in liff.ts so existing campaigns
- * keep working unchanged.
+ * Keep this generic because it is used as the last-resort fallback for
+ * non-reward flows such as selection or onboarding checks.
  */
 export function DEFAULT_FORM_LINK_FLEX(formUrl: string): IntroMessage {
   return {
     type: 'flex',
-    altText: '🎁 特典を受け取る',
+    altText: '確認事項の入力',
     contents: {
       type: 'bubble',
       header: {
         type: 'box',
         layout: 'vertical',
-        backgroundColor: '#0d1117',
+        backgroundColor: '#0F172A',
         paddingAll: '20px',
         contents: [
-          { type: 'text', text: '🎁', size: '3xl', align: 'center' },
           {
             type: 'text',
-            text: '特典をお届けします！',
+            text: '確認事項の入力',
             weight: 'bold',
             size: 'lg',
             color: '#ffffff',
             align: 'center',
-            margin: 'md',
+            wrap: true,
           },
         ],
       },
@@ -44,7 +43,7 @@ export function DEFAULT_FORM_LINK_FLEX(formUrl: string): IntroMessage {
         contents: [
           {
             type: 'text',
-            text: '下のボタンから特典を\n受け取ってください',
+            text: '下のボタンから必要事項の入力に進んでください',
             size: 'sm',
             color: '#666666',
             align: 'center',
@@ -59,7 +58,7 @@ export function DEFAULT_FORM_LINK_FLEX(formUrl: string): IntroMessage {
         contents: [
           {
             type: 'button',
-            action: { type: 'uri', label: '特典を受け取る', uri: formUrl },
+            action: { type: 'uri', label: '入力に進む', uri: formUrl },
             style: 'primary',
             color: '#06C755',
             height: 'md',
@@ -86,10 +85,9 @@ export function buildIntroMessage(
 ): IntroMessage {
   if (!template) return DEFAULT_FORM_LINK_FLEX(formUrl);
 
-  // Defensive fallback: if the template never references {formUrl}, sending it
-  // would leave the user with no way to open the form. Fall back to the default
-  // Flex (which always carries a working form button) instead of dead-ending.
-  if (!template.message_content.includes('{formUrl}')) {
+  // Defensive fallback: if a template never references {formUrl} and is not a
+  // postback-driven Flex, sending it would leave the user with no way forward.
+  if (!template.message_content.includes('{formUrl}') && !template.message_content.includes('"postback"')) {
     return DEFAULT_FORM_LINK_FLEX(formUrl);
   }
 

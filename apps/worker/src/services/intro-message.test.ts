@@ -15,14 +15,14 @@ describe('buildIntroMessage', () => {
       id: 't1',
       name: 'intro text',
       message_type: 'text',
-      message_content: '🎁 特典が届きました！\n受け取りはこちら👉 {formUrl}',
+      message_content: '選考情報の確認をお願いします。\n入力はこちら {formUrl}',
       created_at: '2026-04-07 00:00:00',
       updated_at: '2026-04-07 00:00:00',
     };
     const result = buildIntroMessage(tpl, formUrl);
     expect(result).toEqual({
       type: 'text',
-      text: `🎁 特典が届きました！\n受け取りはこちら👉 ${formUrl}`,
+      text: `選考情報の確認をお願いします。\n入力はこちら ${formUrl}`,
     });
   });
 
@@ -32,7 +32,7 @@ describe('buildIntroMessage', () => {
       body: {
         type: 'box',
         layout: 'vertical',
-        contents: [{ type: 'text', text: 'タップして受け取る' }],
+        contents: [{ type: 'text', text: '入力に進む' }],
       },
       footer: {
         type: 'box',
@@ -40,7 +40,7 @@ describe('buildIntroMessage', () => {
         contents: [
           {
             type: 'button',
-            action: { type: 'uri', label: '受け取る', uri: '{formUrl}' },
+            action: { type: 'uri', label: '入力する', uri: '{formUrl}' },
             style: 'primary',
           },
         ],
@@ -91,6 +91,34 @@ describe('buildIntroMessage', () => {
     expect(result).toEqual(DEFAULT_FORM_LINK_FLEX(formUrl));
   });
 
+  it('postback-driven Flex は {formUrl} なしでもそのまま返す', () => {
+    const flexJson = JSON.stringify({
+      type: 'bubble',
+      footer: {
+        type: 'box',
+        layout: 'vertical',
+        contents: [
+          {
+            type: 'button',
+            action: { type: 'postback', label: '選択する', data: 'five:intake:resume:has' },
+          },
+        ],
+      },
+    });
+    const tpl: MessageTemplate = {
+      id: 't-postback',
+      name: 'postback flex',
+      message_type: 'flex',
+      message_content: flexJson,
+      created_at: '2026-04-07 00:00:00',
+      updated_at: '2026-04-07 00:00:00',
+    };
+    const result = buildIntroMessage(tpl, formUrl);
+    expect(result.type).toBe('flex');
+    if (result.type !== 'flex') throw new Error('unreachable');
+    expect(JSON.stringify(result.contents)).toContain('five:intake:resume:has');
+  });
+
   it('flex テンプレが不正な JSON の場合はデフォルト Flex にフォールバック', () => {
     const tpl: MessageTemplate = {
       id: 't5',
@@ -110,7 +138,7 @@ describe('DEFAULT_FORM_LINK_FLEX', () => {
     const url = 'https://liff.line.me/abc?page=form&id=xyz';
     const flex = DEFAULT_FORM_LINK_FLEX(url);
     expect(flex.type).toBe('flex');
-    expect(flex.altText).toBe('🎁 特典を受け取る');
+    expect(flex.altText).toBe('確認事項の入力');
     const contents = flex.contents as { footer: { contents: Array<{ action: { uri: string } }> } };
     expect(contents.footer.contents[0].action.uri).toBe(url);
   });

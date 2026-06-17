@@ -18,8 +18,10 @@ import type {
   FormUsedByAccount,
 } from '@line-crm/db';
 import type { Env } from '../index.js';
+import { deliverProductEvent } from '../services/product-events.js';
 
 const forms = new Hono<Env>();
+const SAIYO_PRO_CANDIDATE_INTAKE_FORM_ID = 'form-saiyo-pro-candidate-intake';
 
 function serializeForm(
   row: DbForm,
@@ -380,6 +382,14 @@ forms.post('/api/forms/:id/submit', async (c) => {
       data: JSON.stringify(submissionData),
     });
 
+    await emitSaiyoProCandidateIntakeEvent(c.env.DB, {
+      formId,
+      submissionId: submission.id,
+      friendId,
+      lineUserId: body.lineUserId,
+      submissionData,
+    });
+
     // Side effects (best-effort, don't fail the request)
     if (friendId) {
       const db = c.env.DB;
@@ -660,6 +670,66 @@ async function callFormWebhook(
   } catch (err) {
     console.error('Form webhook error:', err);
     return { passed: false, data: { error: String(err) } };
+  }
+}
+
+export function normalizeSaiyoProResumeStatus(value: unknown):
+  | 'resume_submitted'
+  | 'resume_creation_requested'
+  | 'unknown' {
+  if (value === '提出できる') return 'resume_submitted';
+  if (value === 'まだ持っていない') return 'resume_creation_requested';
+  return 'unknown';
+}
+
+async function emitSaiyoProCandidateIntakeEvent(
+  db: D1Database,
+  input: {
+    formId: string;
+    submissionId: string;
+    friendId: string | null;
+    lineUserId?: string;
+    submissionData: Record<string, unknown>;
+  },
+): Promise<void> {
+  if (input.formId !== SAIYO_PRO_CANDIDATE_INTAKE_FORM_ID || !input.friendId) return;
+
+  try {
+    const friend = await getFriendById(db, input.friendId);
+    const friendRow = friend as unknown as {
+      line_user_id?: string | null;
+      line_account_id?: string | null;
+      metadata?: string | null;
+    } | null;
+    const lineAccountId = friendRow?.line_account_id;
+    if (!lineAccountId) return;
+
+    const resumeStatus = normalizeSaiyoProResumeStatus(input.submissionData.resume_status);
+    const result = await deliverProductEvent(db, {
+      productCode: 'saiyou-pro',
+      lineAccountId,
+      eventType: 'candidate_intake_completed',
+      deliveryId: `form-submission:${input.submissionId}`,
+      sourceTable: 'form_submissions',
+      sourceId: input.submissionId,
+      friendId: input.friendId,
+      lineUserId: friendRow?.line_user_id ?? input.lineUserId,
+      requireProductOrgId: true,
+      data: {
+        formId: input.formId,
+        submissionId: input.submissionId,
+        resumeStatus,
+        answers: input.submissionData,
+      },
+    });
+    if (
+      result.status === 'failed' ||
+      (result.status === 'skipped' && result.reason !== 'delivery_already_delivered')
+    ) {
+      console.warn('Saiyou Pro candidate intake event was not delivered:', result);
+    }
+  } catch (error) {
+    console.error('Failed to emit Saiyou Pro candidate intake event:', error);
   }
 }
 

@@ -40,6 +40,7 @@ export async function authMiddleware(c: Context<Env>, next: Next): Promise<Respo
     // LINE 上 rich menu 画像 proxy (Authorization ヘッダなしで <img src> 経由表示)
     path.match(/^\/api\/rich-menu-groups\/external\/[^/]+\/image$/) ||
     path.startsWith('/api/liff/') ||
+    path === '/api/images' ||
     path.startsWith('/auth/') ||
     path === '/setup' ||
     path === '/api/integrations/stripe/webhook' ||

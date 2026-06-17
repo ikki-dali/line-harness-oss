@@ -3,6 +3,7 @@ import { homedir, tmpdir } from "node:os";
 import { existsSync, mkdirSync } from "node:fs";
 import { runSetup } from "./commands/setup.js";
 import { runUpdate } from "./commands/update.js";
+import { runAttachProduct } from "./commands/attach-product.js";
 import { ensureRepo } from "./steps/clone-repo.js";
 
 const args = process.argv.slice(2);
@@ -67,9 +68,11 @@ async function main(): Promise<void> {
     await runSetup(repoDir);
   } else if (command === "update") {
     await runUpdate(repoDir);
+  } else if (command === "attach-product") {
+    await runAttachProduct(repoDir);
   } else {
     console.error(`Unknown command: ${command}`);
-    console.error("Usage: create-line-harness [setup|update] [--repo-dir <path>]");
+    console.error("Usage: create-line-harness [setup|update|attach-product] [--repo-dir <path>]");
     process.exit(1);
   }
 }
