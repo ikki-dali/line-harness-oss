@@ -539,14 +539,23 @@ liffRoutes.get('/auth/oauth', async (c) => {
   let poolAccount = '';
   const baseUrl = new URL(c.req.url).origin;
 
-  // Pool / account resolution — same logic as /auth/line
+  // Pool / account resolution — same priority as /auth/line:
+  // entry_route.pool_id -> ?account= -> ?pool= -> main.
   let channelId = c.env.LINE_LOGIN_CHANNEL_ID;
+  let resolvedPool: Awaited<ReturnType<typeof getTrafficPoolBySlug>> | null = null;
+  if (ref) {
+    const route = await getEntryRouteByRefCode(c.env.DB, ref);
+    if (route?.pool_id) {
+      const candidate = await getTrafficPoolById(c.env.DB, route.pool_id);
+      if (candidate?.is_active) resolvedPool = candidate;
+    }
+  }
+
   if (accountParam) {
     const account = await getLineAccountByChannelId(c.env.DB, accountParam);
     if (account?.login_channel_id) channelId = account.login_channel_id;
   } else {
-    const poolSlug = c.req.query('pool') || 'main';
-    const pool = await getTrafficPoolBySlug(c.env.DB, poolSlug);
+    const pool = resolvedPool ?? await getTrafficPoolBySlug(c.env.DB, c.req.query('pool') || 'main');
     if (pool) {
       const account = await getRandomPoolAccount(c.env.DB, pool.id);
       if (account) {
