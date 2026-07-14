@@ -76,7 +76,7 @@ export async function fireEvent(
   const replied = await processAutomations(db, eventType, enrichedPayload, lineAccessToken, lineAccountId);
 
   // Phase 3: AI fallback — keyword ルール応答が無かったテキストメッセージにだけ
-  // Claude が応答する。automation が既に返信済み / 非テキスト / 非 message_received
+  // LLM が応答する。automation が既に返信済み / 非テキスト / 非 message_received
   // は対象外。
   if (
     eventType === 'message_received' &&

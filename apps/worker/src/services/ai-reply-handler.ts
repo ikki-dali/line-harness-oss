@@ -38,7 +38,7 @@ export function splitForLine(text: string): string[] {
 }
 
 /**
- * messages_log の直近履歴 + 新規メッセージを Claude に渡し、応答を LINE へ push する。
+ * messages_log の直近履歴 + 新規メッセージを LLM に渡し、応答を LINE へ push する。
  * LLM が落ちた場合は無言にせず fallback 文を返す。
  * aiApiKey / lineAccessToken / friendId が欠ける場合は何もしない（無言）。
  */
