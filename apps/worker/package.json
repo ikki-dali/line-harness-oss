@@ -8,7 +8,9 @@
     "test": "vitest run",
     "build": "vite build",
     "preview": "vite preview",
-    "deploy": "vite build && wrangler deploy",
+    "deploy": "node -e \"console.error('Use explicit deploy:saiyo-pro or deploy:tenshoku-pro'); process.exit(1)\"",
+    "deploy:saiyo-pro": "vite build && wrangler deploy --config wrangler.saiyo-pro.toml",
+    "deploy:tenshoku-pro": "vite build && wrangler deploy --config wrangler.toml",
     "typecheck": "tsc --noEmit",
     "inject-version": "tsx scripts/inject-version.ts"
   },

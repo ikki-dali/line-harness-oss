@@ -87,6 +87,10 @@ export type Env = {
     // 現状は OpenAI のキーを入れる（実プロバイダは services/ai-reply.ts が決める）。
     // 未設定の環境では AI フォールバックは発火せず無言になる（maybeAiReply がガード）ため optional。
     AI_API_KEY?: string;
+    // カンマ区切りの対象LINEアカウントID。未設定ならAI返信は全アカウントで無効。
+    AI_REPLY_LINE_ACCOUNT_IDS?: string;
+    AI_REPLY_SERVICE_NAME?: string;
+    AI_REPLY_AUDIENCE?: string;
     API_KEY: string;
     LEGACY_API_KEY?: string;
     LIFF_URL: string;

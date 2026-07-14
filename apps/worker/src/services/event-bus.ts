@@ -32,6 +32,25 @@ export interface EventPayload {
   replyToken?: string;
 }
 
+export interface AiReplyRuntimeConfig {
+  apiKey?: string;
+  allowedLineAccountIds?: string;
+  serviceName?: string;
+  audience?: string;
+}
+
+function isAiReplyAllowedForAccount(
+  lineAccountId: string | null | undefined,
+  configuredAccountIds: string | undefined,
+): boolean {
+  if (!lineAccountId || !configuredAccountIds) return false;
+  return configuredAccountIds
+    .split(',')
+    .map((id) => id.trim())
+    .filter(Boolean)
+    .includes(lineAccountId);
+}
+
 /**
  * Fire an event and run all registered handlers.
  *
@@ -47,7 +66,7 @@ export async function fireEvent(
   payload: EventPayload,
   lineAccessToken?: string,
   lineAccountId?: string | null,
-  aiApiKey?: string,
+  aiConfig?: AiReplyRuntimeConfig,
 ): Promise<void> {
   // Phase 1: fire webhooks, apply scoring rules, and ad conversion postback concurrently.
   const phase1: Promise<unknown>[] = [
@@ -81,13 +100,17 @@ export async function fireEvent(
   if (
     eventType === 'message_received' &&
     !replied &&
+    isAiReplyAllowedForAccount(lineAccountId, aiConfig?.allowedLineAccountIds) &&
     payload.eventData?.matched !== true &&
     payload.friendId &&
     typeof payload.eventData?.text === 'string' &&
     payload.eventData.text.trim().length > 0
   ) {
     const { maybeAiReply } = await import('./ai-reply-handler.js');
-    await maybeAiReply(db, payload, lineAccessToken, lineAccountId, aiApiKey);
+    await maybeAiReply(db, payload, lineAccessToken, lineAccountId, aiConfig?.apiKey, {
+      serviceName: aiConfig?.serviceName,
+      audience: aiConfig?.audience,
+    });
   }
 }
 

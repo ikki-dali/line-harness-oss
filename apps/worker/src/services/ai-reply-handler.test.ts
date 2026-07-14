@@ -66,8 +66,15 @@ describe('maybeAiReply — handover guard', () => {
   });
 
   it('replies via AI when handover is ai (default)', async () => {
-    await maybeAiReply(fakeDb, basePayload, 'token', 'acc-1', 'sk-test');
+    await maybeAiReply(fakeDb, basePayload, 'token', 'acc-1', 'sk-test', {
+      serviceName: '採用プロ for Biz',
+      audience: '企業の採用担当者',
+    });
     expect(generateReply).toHaveBeenCalledTimes(1);
+    expect(generateReply).toHaveBeenCalledWith('sk-test', [], 'こんにちは', {
+      serviceName: '採用プロ for Biz',
+      audience: '企業の採用担当者',
+    });
     expect(pushMessage).toHaveBeenCalledTimes(1);
     expect(pushMessage).toHaveBeenCalledWith('U_test', [{ type: 'text', text: 'AIの返信です' }]);
   });

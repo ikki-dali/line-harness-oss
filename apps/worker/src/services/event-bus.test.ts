@@ -248,7 +248,12 @@ describe('fireEvent — AI fallback branch', () => {
       { friendId: 'friend-1', eventData: { text: '転職したいです', matched: false } },
       'channel-token',
       'acc-1',
-      'sk-anthropic',
+      {
+        apiKey: 'sk-test',
+        allowedLineAccountIds: 'acc-1',
+        serviceName: '採用プロ for Biz',
+        audience: '企業の採用担当者',
+      },
     );
 
     expect(maybeAiReply).toHaveBeenCalledTimes(1);
@@ -257,8 +262,44 @@ describe('fireEvent — AI fallback branch', () => {
       expect.objectContaining({ friendId: 'friend-1' }),
       'channel-token',
       'acc-1',
-      'sk-anthropic',
+      'sk-test',
+      {
+        serviceName: '採用プロ for Biz',
+        audience: '企業の採用担当者',
+      },
     );
+  });
+
+  it('does NOT fire AI reply for an account outside the allowlist', async () => {
+    const { maybeAiReply } = await import('./ai-reply-handler.js');
+    const db = fakeDb({ friend: { line_user_id: 'U_test' }, capturedInserts: [] });
+
+    await fireEvent(
+      db,
+      'message_received',
+      { friendId: 'friend-1', eventData: { text: '採用について相談したい', matched: false } },
+      'channel-token',
+      'five-rpo',
+      { apiKey: 'sk-test', allowedLineAccountIds: 'saiyo-pro-company' },
+    );
+
+    expect(maybeAiReply).not.toHaveBeenCalled();
+  });
+
+  it('does NOT fire AI reply when the account allowlist is missing', async () => {
+    const { maybeAiReply } = await import('./ai-reply-handler.js');
+    const db = fakeDb({ friend: { line_user_id: 'U_test' }, capturedInserts: [] });
+
+    await fireEvent(
+      db,
+      'message_received',
+      { friendId: 'friend-1', eventData: { text: '採用について相談したい', matched: false } },
+      'channel-token',
+      'saiyo-pro-company',
+      { apiKey: 'sk-test' },
+    );
+
+    expect(maybeAiReply).not.toHaveBeenCalled();
   });
 
   it('does NOT fire AI reply when an automation already replied', async () => {
@@ -279,8 +320,8 @@ describe('fireEvent — AI fallback branch', () => {
       'message_received',
       { friendId: 'friend-1', eventData: { text: 'こんにちは', matched: true } },
       'channel-token',
-      null,
-      'sk-anthropic',
+      'acc-1',
+      { apiKey: 'sk-test', allowedLineAccountIds: 'acc-1' },
     );
 
     expect(maybeAiReply).not.toHaveBeenCalled();
@@ -295,8 +336,8 @@ describe('fireEvent — AI fallback branch', () => {
       'friend_add',
       { friendId: 'friend-1', eventData: { text: 'ignored' } },
       'channel-token',
-      null,
-      'sk-anthropic',
+      'acc-1',
+      { apiKey: 'sk-test', allowedLineAccountIds: 'acc-1' },
     );
 
     expect(maybeAiReply).not.toHaveBeenCalled();
@@ -311,8 +352,8 @@ describe('fireEvent — AI fallback branch', () => {
       'message_received',
       { friendId: 'friend-1', eventData: { text: '   ' } },
       'channel-token',
-      null,
-      'sk-anthropic',
+      'acc-1',
+      { apiKey: 'sk-test', allowedLineAccountIds: 'acc-1' },
     );
 
     expect(maybeAiReply).not.toHaveBeenCalled();

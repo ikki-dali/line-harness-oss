@@ -124,7 +124,22 @@ webhook.post('/webhook', async (c) => {
   const processingPromise = (async () => {
     for (const event of body.events) {
       try {
-        await handleEvent(db, lineClient, event, channelAccessToken, matchedAccountId, c.env.WORKER_URL || new URL(c.req.url).origin, c.env.LIFF_URL, c.env.IMAGES, c.env.AI_API_KEY);
+        await handleEvent(
+          db,
+          lineClient,
+          event,
+          channelAccessToken,
+          matchedAccountId,
+          c.env.WORKER_URL || new URL(c.req.url).origin,
+          c.env.LIFF_URL,
+          c.env.IMAGES,
+          {
+            apiKey: c.env.AI_API_KEY,
+            allowedLineAccountIds: c.env.AI_REPLY_LINE_ACCOUNT_IDS,
+            serviceName: c.env.AI_REPLY_SERVICE_NAME,
+            audience: c.env.AI_REPLY_AUDIENCE,
+          },
+        );
       } catch (err) {
         console.error('Error handling webhook event:', err);
       }
@@ -145,7 +160,12 @@ async function handleEvent(
   workerUrl?: string,
   liffUrl?: string,
   r2?: R2Bucket,
-  aiApiKey?: string,
+  aiConfig?: {
+    apiKey?: string;
+    allowedLineAccountIds?: string;
+    serviceName?: string;
+    audience?: string;
+  },
 ): Promise<void> {
   if (event.type === 'follow') {
     const userId =
@@ -634,7 +654,7 @@ async function handleEvent(
       friendId: friend.id,
       eventData: { text: incomingText, matched },
       replyToken: replyTokenConsumed ? undefined : event.replyToken,
-    }, lineAccessToken, lineAccountId, aiApiKey);
+    }, lineAccessToken, lineAccountId, aiConfig);
 
     return;
   }

@@ -26,6 +26,15 @@ Claude（persona: キャリアカウンセラー）が自動応答する MVP の
   （`maybeAiReply` がガード）。
 - **注意**: キーをチャット/コード/git に貼らない。`wrangler secret` か `.dev.vars`（gitignore 済）にのみ置く。
 
+## 対象アカウントとpersona設定
+
+- `AI_REPLY_LINE_ACCOUNT_IDS`: AI返信を許可するLINEアカウントIDをカンマ区切りで指定。
+  未設定なら全アカウントでAI返信を無効化する（Secretだけでは発火しない）。
+- `AI_REPLY_SERVICE_NAME`: 応答内で名乗るサービス名。
+- `AI_REPLY_AUDIENCE`: 応答相手の説明（例: `企業の採用担当者`）。
+- 採用プロ本番は `saiyo-pro-company` のみを対象とする。他アカウントへ広げる場合は、
+  personaと運用責任者を確認してから明示的にIDを追加する。
+
 ## 人 × AI 切替（handover）
 
 - 状態は `friends.metadata.handover`（`'ai'` 既定 / `'human'`）。新規テーブルなし。
