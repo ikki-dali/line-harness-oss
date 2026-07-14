@@ -1,6 +1,7 @@
 import { getRecentHistory } from '../lib/conversation-history.js';
 import { getHandover } from '../lib/handover.js';
 import { generateReply } from './ai-reply.js';
+import type { AiReplyPersona } from './career-persona.js';
 import type { EventPayload } from './event-bus.js';
 import { getFriendById, jstNow } from '@line-crm/db';
 import { LineClient } from '@line-crm/line-sdk';
@@ -48,6 +49,7 @@ export async function maybeAiReply(
   lineAccessToken?: string,
   _lineAccountId?: string | null,
   aiApiKey?: string,
+  persona?: Partial<AiReplyPersona>,
 ): Promise<void> {
   if (!aiApiKey || !lineAccessToken || !payload.friendId) return;
 
@@ -59,7 +61,7 @@ export async function maybeAiReply(
 
   const newMessage = String(payload.eventData?.text ?? '');
   const history = await getRecentHistory(db, payload.friendId, HISTORY_TURNS);
-  const reply = (await generateReply(aiApiKey, history, newMessage)) ?? FALLBACK_TEXT;
+  const reply = (await generateReply(aiApiKey, history, newMessage, persona)) ?? FALLBACK_TEXT;
 
   const client = new LineClient(lineAccessToken);
   // 長文は複数 LINE メッセージに分割し、1 回の push でまとめて送る。

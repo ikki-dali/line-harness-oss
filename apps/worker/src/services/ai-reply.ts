@@ -1,4 +1,5 @@
-import { CAREER_COUNSELOR_SYSTEM } from './career-persona.js';
+import { buildAiReplySystemPrompt } from './career-persona.js';
+import type { AiReplyPersona } from './career-persona.js';
 import type { ChatTurn } from '../lib/conversation-history.js';
 
 // === AI プロバイダ設定 ===
@@ -22,9 +23,10 @@ export async function generateReply(
   apiKey: string,
   history: ChatTurn[],
   newMessage: string,
+  persona?: Partial<AiReplyPersona>,
 ): Promise<string | null> {
   const messages = [
-    { role: 'system' as const, content: CAREER_COUNSELOR_SYSTEM },
+    { role: 'system' as const, content: buildAiReplySystemPrompt(persona) },
     ...history,
     { role: 'user' as const, content: newMessage },
   ];

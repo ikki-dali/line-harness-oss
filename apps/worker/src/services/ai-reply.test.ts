@@ -16,15 +16,20 @@ describe('generateReply (OpenAI Chat Completions)', () => {
     );
     vi.stubGlobal('fetch', fetchMock);
 
-    const history: ChatTurn[] = [{ role: 'user', content: '転職したい' }];
-    const text = await generateReply('sk-test', history, '未経験でも大丈夫?');
+    const history: ChatTurn[] = [{ role: 'user', content: '採用を始めたい' }];
+    const text = await generateReply('sk-test', history, '何から相談できますか?', {
+      serviceName: '採用プロ for Biz',
+      audience: '企業の採用担当者',
+    });
 
     expect(text).toBe('お力になります。');
     const body = JSON.parse(fetchMock.mock.calls[0][1].body as string);
     // OpenAI は system を messages 先頭の role:'system' で渡す
     expect(body.messages[0]).toEqual({ role: 'system', content: expect.any(String) });
     expect(body.messages[0].content.length).toBeGreaterThan(0);
-    expect(body.messages.at(-1)).toEqual({ role: 'user', content: '未経験でも大丈夫?' });
+    expect(body.messages[0].content).toContain('採用プロ for Biz');
+    expect(body.messages[0].content).toContain('企業の採用担当者');
+    expect(body.messages.at(-1)).toEqual({ role: 'user', content: '何から相談できますか?' });
     // Bearer 認証ヘッダ
     expect(fetchMock.mock.calls[0][1].headers.Authorization).toBe('Bearer sk-test');
   });
