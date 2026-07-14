@@ -68,6 +68,10 @@ vi.mock('./ad-conversion.js', () => ({
   sendAdConversions: vi.fn().mockResolvedValue(undefined),
 }));
 
+vi.mock('./ai-reply-handler.js', () => ({
+  maybeAiReply: vi.fn().mockResolvedValue(undefined),
+}));
+
 describe('fireEvent — send_message action logging', () => {
   let captured: CapturedInsert[];
 
@@ -223,5 +227,94 @@ describe('fireEvent — send_message action logging', () => {
     // log には template から取得した messageType / content が記録される
     expect(captured[0].binds[2]).toBe('flex');
     expect(String(captured[0].binds[3])).toContain('from-template');
+  });
+});
+
+describe('fireEvent — AI fallback branch', () => {
+  beforeEach(async () => {
+    vi.clearAllMocks();
+    const db = await import('@line-crm/db');
+    // automation は0件 → keyword 応答なし
+    (db.getActiveAutomationsByEvent as unknown as { mockResolvedValue: (v: unknown) => void }).mockResolvedValue([]);
+  });
+
+  it('fires AI reply when message_received had no automation response', async () => {
+    const { maybeAiReply } = await import('./ai-reply-handler.js');
+    const db = fakeDb({ friend: { line_user_id: 'U_test' }, capturedInserts: [] });
+
+    await fireEvent(
+      db,
+      'message_received',
+      { friendId: 'friend-1', eventData: { text: '転職したいです', matched: false } },
+      'channel-token',
+      'acc-1',
+      'sk-anthropic',
+    );
+
+    expect(maybeAiReply).toHaveBeenCalledTimes(1);
+    expect(maybeAiReply).toHaveBeenCalledWith(
+      db,
+      expect.objectContaining({ friendId: 'friend-1' }),
+      'channel-token',
+      'acc-1',
+      'sk-anthropic',
+    );
+  });
+
+  it('does NOT fire AI reply when an automation already replied', async () => {
+    const db = await import('@line-crm/db');
+    (db.getActiveAutomationsByEvent as unknown as { mockResolvedValue: (v: unknown) => void }).mockResolvedValue([
+      {
+        id: 'auto-1',
+        line_account_id: null,
+        conditions: JSON.stringify({}),
+        actions: JSON.stringify([{ type: 'send_message', params: { messageType: 'text', content: 'hi' } }]),
+      },
+    ]);
+    const { maybeAiReply } = await import('./ai-reply-handler.js');
+    const dbFake = fakeDb({ friend: { line_user_id: 'U_test' }, capturedInserts: [] });
+
+    await fireEvent(
+      dbFake,
+      'message_received',
+      { friendId: 'friend-1', eventData: { text: 'こんにちは', matched: true } },
+      'channel-token',
+      null,
+      'sk-anthropic',
+    );
+
+    expect(maybeAiReply).not.toHaveBeenCalled();
+  });
+
+  it('does NOT fire AI reply for non-message events', async () => {
+    const { maybeAiReply } = await import('./ai-reply-handler.js');
+    const dbFake = fakeDb({ friend: { line_user_id: 'U_test' }, capturedInserts: [] });
+
+    await fireEvent(
+      dbFake,
+      'friend_add',
+      { friendId: 'friend-1', eventData: { text: 'ignored' } },
+      'channel-token',
+      null,
+      'sk-anthropic',
+    );
+
+    expect(maybeAiReply).not.toHaveBeenCalled();
+  });
+
+  it('does NOT fire AI reply when text is empty', async () => {
+    const { maybeAiReply } = await import('./ai-reply-handler.js');
+    const dbFake = fakeDb({ friend: { line_user_id: 'U_test' }, capturedInserts: [] });
+
+    await fireEvent(
+      dbFake,
+      'message_received',
+      { friendId: 'friend-1', eventData: { text: '   ' } },
+      'channel-token',
+      null,
+      'sk-anthropic',
+    );
+
+    expect(maybeAiReply).not.toHaveBeenCalled();
   });
 });

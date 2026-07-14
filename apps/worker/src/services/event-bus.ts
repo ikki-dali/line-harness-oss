@@ -47,6 +47,7 @@ export async function fireEvent(
   payload: EventPayload,
   lineAccessToken?: string,
   lineAccountId?: string | null,
+  aiApiKey?: string,
 ): Promise<void> {
   // Phase 1: fire webhooks, apply scoring rules, and ad conversion postback concurrently.
   const phase1: Promise<unknown>[] = [
@@ -72,7 +73,22 @@ export async function fireEvent(
     : payload;
 
   // Phase 2: evaluate automations.
-  await processAutomations(db, eventType, enrichedPayload, lineAccessToken, lineAccountId);
+  const replied = await processAutomations(db, eventType, enrichedPayload, lineAccessToken, lineAccountId);
+
+  // Phase 3: AI fallback — keyword ルール応答が無かったテキストメッセージにだけ
+  // LLM が応答する。automation が既に返信済み / 非テキスト / 非 message_received
+  // は対象外。
+  if (
+    eventType === 'message_received' &&
+    !replied &&
+    payload.eventData?.matched !== true &&
+    payload.friendId &&
+    typeof payload.eventData?.text === 'string' &&
+    payload.eventData.text.trim().length > 0
+  ) {
+    const { maybeAiReply } = await import('./ai-reply-handler.js');
+    await maybeAiReply(db, payload, lineAccessToken, lineAccountId, aiApiKey);
+  }
 }
 
 /** 送信Webhookへの通知 */
@@ -134,14 +150,19 @@ async function processScoring(
   }
 }
 
-/** 自動化ルール(IF-THEN)実行 */
+/**
+ * 自動化ルール(IF-THEN)実行。
+ * 戻り値: send_message アクションを1件でも成功実行したら true（= keyword 応答が
+ * 利用者に届いた）。これを fireEvent 側が AI フォールバックの発火可否に使う。
+ */
 async function processAutomations(
   db: D1Database,
   eventType: string,
   payload: EventPayload,
   lineAccessToken?: string,
   lineAccountId?: string | null,
-): Promise<void> {
+): Promise<boolean> {
+  let didReply = false;
   try {
     const allAutomations = await getActiveAutomationsByEvent(db, eventType);
     // Filter by account: match this account's automations + unassigned (backward compat)
@@ -161,6 +182,7 @@ async function processAutomations(
       for (const action of actions) {
         try {
           await executeAction(db, action, payload, lineAccessToken, lineAccountId);
+          if (action.type === 'send_message') didReply = true;
           results.push({ action: action.type, success: true });
         } catch (err) {
           const errorMsg = err instanceof Error ? err.message : String(err);
@@ -179,8 +201,10 @@ async function processAutomations(
         status: allSuccess ? 'success' : anySuccess ? 'partial' : 'failed',
       });
     }
+    return didReply;
   } catch (err) {
     console.error('processAutomations error:', err);
+    return false;
   }
 }
 

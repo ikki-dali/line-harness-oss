@@ -15,6 +15,7 @@ import {
   jstNow,
 } from '@line-crm/db';
 import type { Env } from '../index.js';
+import { setHandover } from '../lib/handover.js';
 
 const chats = new Hono<Env>();
 
@@ -562,9 +563,28 @@ chats.post('/api/chats/:id/send', async (c) => {
     // チャットの最終メッセージ日時を更新（chat.id を直接使う — friend_id で呼ばれても resolveOrCreateChat 済み）
     await updateChat(c.env.DB, chat.id, { status: 'in_progress', lastMessageAt: jstNow() });
 
+    // takeover: オペレーターが手動応答した = 有人対応開始。AI を黙らせる。
+    await setHandover(c.env.DB, friend.id, 'human');
+
     return c.json({ success: true, data: { sent: true, messageId: logId } });
   } catch (err) {
     console.error('POST /api/chats/:id/send error:', err);
+    return c.json({ success: false, error: 'Internal server error' }, 500);
+  }
+});
+
+// 有人対応を終了し AI 自動応答を再開する
+chats.post('/api/chats/:id/resume-ai', async (c) => {
+  try {
+    const chatId = c.req.param('id');
+    const chat = await resolveOrCreateChat(c.env.DB, chatId);
+    if (!chat) return c.json({ success: false, error: 'Chat not found' }, 404);
+
+    await setHandover(c.env.DB, chat.friend_id, 'ai');
+
+    return c.json({ success: true, data: { handover: 'ai' } });
+  } catch (err) {
+    console.error('POST /api/chats/:id/resume-ai error:', err);
     return c.json({ success: false, error: 'Internal server error' }, 500);
   }
 });
