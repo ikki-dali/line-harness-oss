@@ -38,7 +38,7 @@ export function splitForLine(text: string): string[] {
 }
 
 /**
- * messages_log の直近履歴 + 新規メッセージを Claude に渡し、応答を LINE へ push する。
+ * messages_log の直近履歴 + 新規メッセージを LLM に渡し、応答を LINE へ push する。
  * LLM が落ちた場合は無言にせず fallback 文を返す。
  * aiApiKey / lineAccessToken / friendId が欠ける場合は何もしない（無言）。
  */
@@ -59,7 +59,7 @@ export async function maybeAiReply(
 
   const newMessage = String(payload.eventData?.text ?? '');
   const history = await getRecentHistory(db, payload.friendId, HISTORY_TURNS);
-  const reply = (await generateReply(aiApiKey, history, newMessage)) ?? FALLBACK_TEXT;
+  const reply = (await generateReply(aiApiKey, history, newMessage, _lineAccountId)) ?? FALLBACK_TEXT;
 
   const client = new LineClient(lineAccessToken);
   // 長文は複数 LINE メッセージに分割し、1 回の push でまとめて送る。

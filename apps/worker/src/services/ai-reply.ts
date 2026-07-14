@@ -1,4 +1,4 @@
-import { CAREER_COUNSELOR_SYSTEM } from './career-persona.js';
+import { CAREER_COUNSELOR_SYSTEM, COMPANY_INQUIRY_SYSTEM } from './career-persona.js';
 import type { ChatTurn } from '../lib/conversation-history.js';
 
 // === AI プロバイダ設定 ===
@@ -22,9 +22,10 @@ export async function generateReply(
   apiKey: string,
   history: ChatTurn[],
   newMessage: string,
+  lineAccountId?: string | null,
 ): Promise<string | null> {
   const messages = [
-    { role: 'system' as const, content: CAREER_COUNSELOR_SYSTEM },
+    { role: 'system' as const, content: selectSystemPrompt(lineAccountId) },
     ...history,
     { role: 'user' as const, content: newMessage },
   ];
@@ -54,4 +55,8 @@ export async function generateReply(
     console.error('generateReply fetch failed:', err);
     return null;
   }
+}
+
+function selectSystemPrompt(lineAccountId?: string | null): string {
+  return lineAccountId === 'saiyo-pro-company' ? COMPANY_INQUIRY_SYSTEM : CAREER_COUNSELOR_SYSTEM;
 }

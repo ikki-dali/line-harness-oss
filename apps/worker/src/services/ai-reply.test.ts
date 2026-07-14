@@ -34,4 +34,25 @@ describe('generateReply (OpenAI Chat Completions)', () => {
     const text = await generateReply('sk-test', [], 'hi');
     expect(text).toBeNull();
   });
+
+  it('uses the recruiting-business persona for 採用プロ for Biz', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({ choices: [{ message: { role: 'assistant', content: '承知いたしました。' } }] }),
+        { status: 200 },
+      ),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    await generateReply('sk-test', [], '採用支援について聞きたいです', 'saiyo-pro-company');
+
+    const body = JSON.parse(fetchMock.mock.calls[0][1].body as string);
+    const systemPrompt = body.messages[0].content as string;
+    expect(systemPrompt).toContain('採用プロ for Biz');
+    expect(systemPrompt).toContain('企業の採用担当者');
+    expect(systemPrompt).toContain('丁寧で落ち着いた日本語');
+    expect(systemPrompt).toContain('必要に応じて担当者へ連携');
+    expect(systemPrompt).not.toContain('堅すぎない');
+    expect(systemPrompt).not.toContain('口語でよい');
+  });
 });

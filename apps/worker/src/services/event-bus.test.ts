@@ -238,17 +238,17 @@ describe('fireEvent — AI fallback branch', () => {
     (db.getActiveAutomationsByEvent as unknown as { mockResolvedValue: (v: unknown) => void }).mockResolvedValue([]);
   });
 
-  it('fires AI reply when message_received had no automation response', async () => {
+  it('fires AI reply for 採用プロ for Biz when no automation responded', async () => {
     const { maybeAiReply } = await import('./ai-reply-handler.js');
     const db = fakeDb({ friend: { line_user_id: 'U_test' }, capturedInserts: [] });
 
     await fireEvent(
       db,
       'message_received',
-      { friendId: 'friend-1', eventData: { text: '転職したいです', matched: false } },
+      { friendId: 'friend-1', eventData: { text: '採用について相談したいです', matched: false } },
       'channel-token',
-      'acc-1',
-      'sk-anthropic',
+      'saiyo-pro-company',
+      'sk-test',
     );
 
     expect(maybeAiReply).toHaveBeenCalledTimes(1);
@@ -256,9 +256,25 @@ describe('fireEvent — AI fallback branch', () => {
       db,
       expect.objectContaining({ friendId: 'friend-1' }),
       'channel-token',
-      'acc-1',
-      'sk-anthropic',
+      'saiyo-pro-company',
+      'sk-test',
     );
+  });
+
+  it('does NOT fire AI reply for another LINE account', async () => {
+    const { maybeAiReply } = await import('./ai-reply-handler.js');
+    const db = fakeDb({ friend: { line_user_id: 'U_test' }, capturedInserts: [] });
+
+    await fireEvent(
+      db,
+      'message_received',
+      { friendId: 'friend-1', eventData: { text: '問い合わせです', matched: false } },
+      'channel-token',
+      'five-rpo',
+      'sk-test',
+    );
+
+    expect(maybeAiReply).not.toHaveBeenCalled();
   });
 
   it('does NOT fire AI reply when an automation already replied', async () => {

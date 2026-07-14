@@ -68,6 +68,7 @@ describe('maybeAiReply — handover guard', () => {
   it('replies via AI when handover is ai (default)', async () => {
     await maybeAiReply(fakeDb, basePayload, 'token', 'acc-1', 'sk-test');
     expect(generateReply).toHaveBeenCalledTimes(1);
+    expect(generateReply).toHaveBeenCalledWith('sk-test', expect.any(Array), 'こんにちは', 'acc-1');
     expect(pushMessage).toHaveBeenCalledTimes(1);
     expect(pushMessage).toHaveBeenCalledWith('U_test', [{ type: 'text', text: 'AIの返信です' }]);
   });
