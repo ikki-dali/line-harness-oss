@@ -52,6 +52,9 @@ describe('generateReply (OpenAI Chat Completions)', () => {
     expect(systemPrompt).toContain('企業の採用担当者');
     expect(systemPrompt).toContain('丁寧で落ち着いた日本語');
     expect(systemPrompt).toContain('必要に応じて担当者へ連携');
+    expect(systemPrompt).toContain('求人情報の登録・管理');
+    expect(systemPrompt).toContain('応募者・候補者の確認');
+    expect(systemPrompt).toContain('一度の返信で尋ねることは1つまで');
     expect(systemPrompt).not.toContain('堅すぎない');
     expect(systemPrompt).not.toContain('口語でよい');
   });
